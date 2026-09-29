@@ -22,6 +22,7 @@ class MainActivity : Activity() {
     companion object {
         private const val EMAIL_PREFS = "battery_nag_email"
         private const val EMAIL_KEY = "registered_email"
+        private const val SONGSLIKE_PLAYLIST_URL = "https://open.songslike.com/battery+nag"
         private const val REGISTER_URL =
             "https://battery-nag-email-service-etk83m.v2.appdeploy.ai/api/register"
     }
@@ -68,6 +69,11 @@ class MainActivity : Activity() {
         fun snooze(hours: Int) {
             if (hours !in 1..5) return
             BatteryNag.snooze(this@MainActivity, hours)
+        }
+
+        @JavascriptInterface
+        fun openPlaylist() {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(SONGSLIKE_PLAYLIST_URL)))
         }
 
         @JavascriptInterface
