@@ -1,4 +1,3 @@
-
 name: Build Battery Nag APK
 
 on:
@@ -21,9 +20,7 @@ jobs:
           cache: gradle
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: "platform-tools"
+        uses: android-actions/setup-android@v4
 
       - name: Install Android build packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
