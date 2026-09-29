@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import android.webkit.WebChromeClient
 import android.webkit.WebViewClient
 import androidx.core.app.ActivityCompat
 import org.json.JSONObject
@@ -36,6 +37,11 @@ class MainActivity : Activity() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.useWideViewPort = true
+            settings.loadWithOverviewMode = true
+            settings.mediaPlaybackRequiresUserGesture = true
+            settings.allowFileAccess = false
+            settings.allowContentAccess = true
+            webChromeClient = WebChromeClient()
             webViewClient = WebViewClient()
             addJavascriptInterface(BatteryNagBridge(), "BatteryNag")
         }
@@ -112,7 +118,8 @@ class MainActivity : Activity() {
                     }
 
                     val code = connection.responseCode
-                    val message = if (code in 200..299) {
+                    val success = code in 200..299
+                    val message = if (success) {
                         "You're registered for alerts. Check your email."
                     } else {
                         "Registration email could not be sent. Try again."
