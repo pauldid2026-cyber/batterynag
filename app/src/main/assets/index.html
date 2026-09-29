@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta charset="utf-8">
+<title>Battery Nag</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:#000;color:#fff;font-family:Arial,sans-serif}
+body{padding:24px 18px calc(32px + env(safe-area-inset-bottom));overflow-y:auto}
+.wrap{width:100%;max-width:520px;margin:0 auto}
+h1{font-size:36px;line-height:1;margin:8px 0 12px;font-weight:900;letter-spacing:-1px}
+.status{font-size:28px;font-weight:800;text-align:center;padding:22px 12px;border:1px solid #333;border-radius:16px;margin:18px 0}
+.copy{text-align:center;color:#bbb;font-size:15px;line-height:1.45;margin:0 4px 18px}
+label{display:block;color:#aaa;font-size:13px;font-weight:800;margin:18px 0 8px}
+input{display:block;width:100%;min-height:56px;padding:14px 16px;border:1px solid #555;border-radius:12px;background:#111;color:#fff;font-size:17px;outline:none}
+button{display:block;width:100%;min-height:56px;margin:12px 0;padding:14px 18px;border:0;border-radius:12px;background:#fff;color:#000;font-size:15px;font-weight:900;letter-spacing:.02em;white-space:normal}
+button:active{transform:scale(.99)}
+.hint{text-align:center;color:#888;font-size:13px;margin:12px 0 22px}
+.divider{height:1px;background:#252525;margin:24px 0}
+.snooze-title{text-align:center;color:#aaa;font-size:13px;font-weight:800;margin-bottom:10px}
+.snooze-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.snooze-grid button{margin:0;background:#171717;color:#fff;border:1px solid #333}
+#result{text-align:center;min-height:22px;color:#bbb;font-size:14px;padding:4px 8px}
+@media(max-width:360px){body{padding-left:14px;padding-right:14px}h1{font-size:32px}.snooze-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>BATTERY NAG</h1>
+<div id="status" class="status">Battery: --%</div>
+<p class="copy">Warns below 30% and gets more frequent as the battery falls.</p>
+<label for="email">EMAIL FOR ALERTS</label>
+<input id="email" type="email" autocomplete="email" placeholder="Your email address">
+<button onclick="registerEmail()">REGISTER FOR ALERTS</button>
+<div id="result"></div>
+<p class="hint">Your address is saved on this device and registered with Battery Nag.</p>
+<div class="divider"></div>
+<div class="snooze-title">IGNORE WARNINGS FOR:</div>
+<div class="snooze-grid">
+<button onclick="snooze(1)">1 HOUR</button>
+<button onclick="snooze(2)">2 HOURS</button>
+<button onclick="snooze(3)">3 HOURS</button>
+<button onclick="snooze(4)">4 HOURS</button>
+<button onclick="snooze(5)">5 HOURS</button>
+</div>
+</div>
+<script>
+function setStatus(text){document.getElementById('status').textContent=text}
+function setResult(text){document.getElementById('result').textContent=text}
+function refresh(){if(window.BatteryNag){setStatus(BatteryNag.getStatus())}}
+function registerEmail(){
+ const email=document.getElementById('email').value.trim();
+ if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){setResult('Enter a valid email address.');return}
+ setResult('Registering...');
+ BatteryNag.registerEmail(email);
+}
+function onRegistrationResult(ok,message){setResult(message)}
+function snooze(hours){BatteryNag.snooze(hours);setResult('Warnings snoozed for '+hours+' hour'+(hours===1?'':'s')+'.');refresh()}
+window.onRegistrationResult=onRegistrationResult;
+document.addEventListener('DOMContentLoaded',refresh);
+</script>
+</body>
+</html>
