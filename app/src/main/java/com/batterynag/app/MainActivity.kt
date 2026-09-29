@@ -4,10 +4,11 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.IntentFilter
-import android.os.Bundle
 import android.os.Build
-import android.view.Gravity
-import android.widget.*
+import android.os.Bundle
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.core.app.ActivityCompat
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -15,8 +16,7 @@ import java.net.URL
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
-    private lateinit var status: TextView
-    private lateinit var emailInput: EditText
+    private lateinit var webView: WebView
     private val executor = Executors.newSingleThreadExecutor()
 
     companion object {
@@ -26,9 +26,20 @@ class MainActivity : Activity() {
             "https://battery-nag-email-service-etk83m.v2.appdeploy.ai/api/register"
     }
 
-    override fun onCreate(s: Bundle?) {
-        super.onCreate(s)
-        buildUi()
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        webView = WebView(this).apply {
+            setBackgroundColor(0xFF000000.toInt())
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.useWideViewPort = true
+            webViewClient = WebViewClient()
+            addJavascriptInterface(BatteryNagBridge(), "BatteryNag")
+        }
+        setContentView(webView)
+        webView.loadUrl("file:///android_asset/index.html")
+
         if (Build.VERSION.SDK_INT >= 33) {
             ActivityCompat.requestPermissions(
                 this,
@@ -39,173 +50,91 @@ class MainActivity : Activity() {
         BatteryNag.checkCurrentBattery(this)
     }
 
-    private fun buildUi() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(40, 40, 40, 40)
-            setBackgroundColor(0xFF000000.toInt())
+    inner class BatteryNagBridge {
+        @JavascriptInterface
+        fun getStatus(): String {
+            val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val level = battery?.getIntExtra("level", -1) ?: -1
+            val scale = battery?.getIntExtra("scale", 100) ?: 100
+            val percent = if (level >= 0) level * 100 / scale else -1
+            return if (BatteryNag.isSnoozed(this@MainActivity)) {
+                "Warnings snoozed"
+            } else {
+                "Battery: $percent%"
+            }
         }
 
-        root.addView(TextView(this).apply {
-            text = "BATTERY NAG"
-            textSize = 30f
-            setTextColor(-1)
-            gravity = Gravity.CENTER
-        })
-
-        status = TextView(this).apply {
-            textSize = 20f
-            setTextColor(-1)
-            gravity = Gravity.CENTER
-            setPadding(0, 30, 0, 20)
-        }
-        root.addView(status)
-
-        root.addView(TextView(this).apply {
-            text = "Get an email when Battery Nag registers your alert address."
-            textSize = 15f
-            setTextColor(0xFFCCCCCC.toInt())
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 15)
-        })
-
-        emailInput = EditText(this).apply {
-            hint = "Your email address"
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or
-                android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-            setText(getSharedPreferences(EMAIL_PREFS, MODE_PRIVATE).getString(EMAIL_KEY, ""))
-            setTextColor(-1)
-            setHintTextColor(0xFF888888.toInt())
-            setSingleLine(true)
-        }
-        root.addView(emailInput, LinearLayout.LayoutParams(-1, 60).apply {
-            setMargins(0, 8, 0, 8)
-        })
-
-        root.addView(Button(this).apply {
-            text = "REGISTER FOR ALERTS"
-            setOnClickListener { registerEmail() }
-        }, LinearLayout.LayoutParams(-1, 58).apply {
-            setMargins(0, 4, 0, 12)
-        })
-
-        root.addView(TextView(this).apply {
-            text = "Warns below 30% and gets more frequent as the battery falls."
-            textSize = 16f
-            setTextColor(0xFFCCCCCC.toInt())
-            gravity = Gravity.CENTER
-        })
-
-        root.addView(TextView(this).apply {
-            text = "IGNORE WARNINGS FOR:"
-            textSize = 14f
-            setTextColor(0xFFAAAAAA.toInt())
-            gravity = Gravity.CENTER
-            setPadding(0, 30, 0, 15)
-        })
-
-        for (h in 1..5) {
-            root.addView(Button(this).apply {
-                text = "$h HOUR" + if (h > 1) "S" else ""
-                setOnClickListener {
-                    BatteryNag.snooze(this@MainActivity, h)
-                    updateStatus()
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Warnings snoozed for $h hour(s)",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            }, LinearLayout.LayoutParams(-1, 55).apply {
-                setMargins(0, 4, 0, 4)
-            })
+        @JavascriptInterface
+        fun snooze(hours: Int) {
+            if (hours !in 1..5) return
+            BatteryNag.snooze(this@MainActivity, hours)
         }
 
-        setContentView(root)
-        updateStatus()
-    }
-
-    private fun registerEmail() {
-        val email = emailInput.text.toString().trim()
-        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
-            Toast.makeText(this, "Enter a valid email address.", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        getSharedPreferences(EMAIL_PREFS, MODE_PRIVATE)
-            .edit()
-            .putString(EMAIL_KEY, email)
-            .apply()
-
-        Toast.makeText(this, "Registering...", Toast.LENGTH_SHORT).show()
-
-        executor.execute {
-            var connection: HttpURLConnection? = null
-            try {
-                val url = URL(REGISTER_URL)
-                connection = (url.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    connectTimeout = 10000
-                    readTimeout = 15000
-                    doOutput = true
-                    setRequestProperty("Content-Type", "application/json")
-                    setRequestProperty("Accept", "application/json")
-                }
-
-                val payload = JSONObject().put("email", email).toString()
-                connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
-
-                val code = connection.responseCode
-                val stream = if (code in 200..299) {
-                    connection.inputStream
-                } else {
-                    connection.errorStream
-                }
-                val response = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-
+        @JavascriptInterface
+        fun registerEmail(email: String) {
+            if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
                 runOnUiThread {
-                    if (code in 200..299) {
-                        Toast.makeText(
-                            this,
-                            "You're registered for alerts. Check your email.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    } else {
-                        Toast.makeText(
-                            this,
-                            "Registration email could not be sent. Try again.",
-                            Toast.LENGTH_LONG
-                        ).show()
+                    webView.evaluateJavascript(
+                        "onRegistrationResult(false,'Enter a valid email address.')",
+                        null
+                    )
+                }
+                return
+            }
+
+            getSharedPreferences(EMAIL_PREFS, MODE_PRIVATE)
+                .edit()
+                .putString(EMAIL_KEY, email)
+                .apply()
+
+            executor.execute {
+                var connection: HttpURLConnection? = null
+                try {
+                    connection = (URL(REGISTER_URL).openConnection() as HttpURLConnection).apply {
+                        requestMethod = "POST"
+                        connectTimeout = 10000
+                        readTimeout = 15000
+                        doOutput = true
+                        setRequestProperty("Content-Type", "application/json")
+                        setRequestProperty("Accept", "application/json")
                     }
+
+                    val payload = JSONObject().put("email", email).toString()
+                    connection.outputStream.use {
+                        it.write(payload.toByteArray(Charsets.UTF_8))
+                    }
+
+                    val code = connection.responseCode
+                    val message = if (code in 200..299) {
+                        "You're registered for alerts. Check your email."
+                    } else {
+                        "Registration email could not be sent. Try again."
+                    }
+
+                    runOnUiThread {
+                        val escaped = JSONObject.quote(message)
+                        webView.evaluateJavascript(
+                            "onRegistrationResult(\${code in 200..299},$escaped)",
+                            null
+                        )
+                    }
+                } catch (_: Exception) {
+                    runOnUiThread {
+                        webView.evaluateJavascript(
+                            "onRegistrationResult(false,'Could not reach the registration service.')",
+                            null
+                        )
+                    }
+                } finally {
+                    connection?.disconnect()
                 }
-            } catch (_: Exception) {
-                runOnUiThread {
-                    Toast.makeText(
-                        this,
-                        "Could not reach the registration service.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            } finally {
-                connection?.disconnect()
             }
         }
     }
 
-    private fun updateStatus() {
-        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        val level = battery?.getIntExtra("level", -1) ?: -1
-        val scale = battery?.getIntExtra("scale", 100) ?: 100
-        val percent = if (level >= 0) level * 100 / scale else -1
-        status.text = if (BatteryNag.isSnoozed(this)) {
-            "Warnings snoozed"
-        } else {
-            "Battery: $percent%"
-        }
-    }
-
     override fun onDestroy() {
+        webView.removeJavascriptInterface("BatteryNag")
+        webView.destroy()
         executor.shutdownNow()
         super.onDestroy()
     }
