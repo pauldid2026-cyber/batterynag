@@ -15,6 +15,8 @@ label{display:block;color:#aaa;font-size:13px;font-weight:800;margin:18px 0 8px}
 input{display:block;width:100%;min-height:56px;padding:14px 16px;border:1px solid #555;border-radius:12px;background:#111;color:#fff;font-size:17px;outline:none}
 button{display:block;width:100%;min-height:56px;margin:12px 0;padding:14px 18px;border:0;border-radius:12px;background:#fff;color:#000;font-size:15px;font-weight:900;letter-spacing:.02em;white-space:normal}
 button:active{transform:scale(.99)}
+.playlist{background:#fff;color:#000}
+.video{width:100%;aspect-ratio:16/9;background:#111;border:1px solid #333;border-radius:16px;overflow:hidden;margin:8px 0 18px}.video iframe{width:100%;height:100%;border:0;display:block}
 .hint{text-align:center;color:#888;font-size:13px;margin:12px 0 22px}
 .divider{height:1px;background:#252525;margin:24px 0}
 .snooze-title{text-align:center;color:#aaa;font-size:13px;font-weight:800;margin-bottom:10px}
@@ -27,8 +29,10 @@ button:active{transform:scale(.99)}
 <body>
 <div class="wrap">
 <h1>BATTERY NAG</h1>
+<div class="video"><iframe src="https://www.youtube.com/embed/JWdZEumNRmI" title="Battery Nag in action" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>
 <div id="status" class="status">Battery: --%</div>
 <p class="copy">Warns below 30% and gets more frequent as the battery falls.</p>
+<button class="playlist" onclick="openPlaylist()">OPEN BATTERY NAG PLAYLIST ON SONGSLIKE</button>
 <label for="email">EMAIL FOR ALERTS</label>
 <input id="email" type="email" autocomplete="email" placeholder="Your email address">
 <button onclick="registerEmail()">REGISTER FOR ALERTS</button>
@@ -48,6 +52,7 @@ button:active{transform:scale(.99)}
 function setStatus(text){document.getElementById('status').textContent=text}
 function setResult(text){document.getElementById('result').textContent=text}
 function refresh(){if(window.BatteryNag){setStatus(BatteryNag.getStatus())}}
+function openPlaylist(){if(window.BatteryNag){BatteryNag.openPlaylist()}else{window.location.href='https://open.songslike.com/battery+nag'}}
 function registerEmail(){
  const email=document.getElementById('email').value.trim();
  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){setResult('Enter a valid email address.');return}
