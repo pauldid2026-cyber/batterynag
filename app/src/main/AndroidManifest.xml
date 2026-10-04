@@ -20,7 +20,9 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED"/>
                 <action android:name="android.intent.action.POWER_CONNECTED"/>
+                <action android:name="android.intent.action.POWER_DISCONNECTED"/>
             </intent-filter>
         </receiver>
+        <receiver android:name=".ToneReceiver" android:exported="false"/>
     </application>
 </manifest>
