@@ -128,7 +128,7 @@ class MainActivity : Activity() {
                     runOnUiThread {
                         val escaped = JSONObject.quote(message)
                         webView.evaluateJavascript(
-                            "onRegistrationResult(\${code in 200..299},$escaped)",
+                            "onRegistrationResult($success,$escaped)",
                             null
                         )
                     }
