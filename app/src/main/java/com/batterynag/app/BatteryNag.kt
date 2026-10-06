@@ -116,11 +116,18 @@ object BatteryNag {
      * Plays the bundled warning track. Falls back to the beep if the
      * track is missing or cannot be decoded.
      *
-     * Playback stops as soon as the phone is plugged in or snoozed.
+     * The track loops, so a nag runs continuously instead of falling
+     * silent after one pass. A non-null [nagPlayer] therefore means a run
+     * is still going, and that run is left alone - restarting on every nag
+     * cycle cut the song off and replayed the opening seconds forever
+     * instead of letting it play.
+     *
+     * Playback starts once and repeats until the phone is plugged in or
+     * snoozed, at which point the player is released immediately.
      */
     private fun playNag(c: Context) {
         if (isSnoozed(c) || isCharging(c)) return
-        stopNag()
+        if (nagPlayer != null) return
         try {
             val fd = c.resources.openRawResourceFd(R.raw.nag_alert)
             if (fd == null) {
@@ -137,7 +144,7 @@ object BatteryNag {
                 )
                 mp.setDataSource(it.fileDescriptor, it.startOffset, it.length)
             }
-            mp.isLooping = false
+            mp.isLooping = true
             mp.setOnPreparedListener { player ->
                 try {
                     player.start()
