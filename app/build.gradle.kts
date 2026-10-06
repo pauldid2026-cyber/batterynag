@@ -11,7 +11,13 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+        buildConfigField(
+            "String",
+            "SIGNING_SECRET",
+            "\"" + (System.getenv("BATTERY_NAG_SIGNING_SECRET") ?: "").replace("\"", "\\\"") + "\""
+        )
     }
+    buildFeatures { buildConfig = true }
     buildTypes { release { isMinifyEnabled = false; signingConfig = signingConfigs.getByName("debug") } }
     kotlin { jvmToolchain(17) }
 }

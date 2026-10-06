@@ -30,6 +30,8 @@ jobs:
 
       - name: Build release APK
         run: gradle assembleRelease
+        env:
+          BATTERY_NAG_SIGNING_SECRET: ${{ secrets.BATTERY_NAG_SIGNING_SECRET }}
 
       - name: Verify APK exists
         run: test -s app/build/outputs/apk/release/app-release.apk

@@ -17,6 +17,7 @@ object BatteryNag {
     private const val EMAIL_PREFS = "battery_nag_email"
     private const val EMAIL_KEY = "registered_email"
     private const val ALERT_URL = "https://open.songslike.com/battery-nag-api/index.php/alert"
+    private const val ALERT_PATH = "/battery-nag-api/index.php/alert"
     private const val CLIENT_API_KEY = "batterynag-public-client"
     private const val SNOOZE_UNTIL = "snooze_until"
     private const val CHANNEL = "battery_warning"
@@ -75,6 +76,9 @@ object BatteryNag {
         emailExecutor.execute {
             var connection: HttpURLConnection? = null
             try {
+                val body = JSONObject().put("email", email).put("threshold", threshold).put("percent", p).toString()
+                val signed = RequestSigner.headers(BuildConfig.SIGNING_SECRET, "POST", ALERT_PATH, body)
+
                 connection = (URL(ALERT_URL).openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     connectTimeout = 10000
@@ -83,8 +87,8 @@ object BatteryNag {
                     setRequestProperty("Content-Type", "application/json")
                     setRequestProperty("Accept", "application/json")
                     setRequestProperty("X-BatteryNag-Key", CLIENT_API_KEY)
+                    signed.forEach { (name, value) -> setRequestProperty(name, value) }
                 }
-                val body = JSONObject().put("email", email).put("threshold", threshold).put("percent", p).toString()
                 connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
                 if (connection.responseCode in 200..299) {
                     val updated = prefs.getStringSet("sent_thresholds", emptySet())?.toMutableSet() ?: mutableSetOf()

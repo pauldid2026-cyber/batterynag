@@ -32,6 +32,7 @@ class MainActivity : Activity() {
         private const val SONGSLIKE_PLAYLIST_URL = "https://open.songslike.com/battery+nag"
         private const val REGISTER_URL =
             "https://open.songslike.com/battery-nag-api/index.php/register"
+        private const val REGISTER_PATH = "/battery-nag-api/index.php/register"
         private const val CLIENT_API_KEY = "batterynag-public-client"
         private const val SONGSLIKE_SEARCH_URL =
             "https://open.songslike.com/lib/ajax/ajax.php"
@@ -191,6 +192,9 @@ class MainActivity : Activity() {
             executor.execute {
                 var connection: HttpURLConnection? = null
                 try {
+                    val payload = JSONObject().put("email", email).toString()
+                    val signed = RequestSigner.headers(BuildConfig.SIGNING_SECRET, "POST", REGISTER_PATH, payload)
+
                     connection = (URL(REGISTER_URL).openConnection() as HttpURLConnection).apply {
                         requestMethod = "POST"
                         connectTimeout = 10000
@@ -199,9 +203,9 @@ class MainActivity : Activity() {
                         setRequestProperty("Content-Type", "application/json")
                         setRequestProperty("Accept", "application/json")
                         setRequestProperty("X-BatteryNag-Key", CLIENT_API_KEY)
+                        signed.forEach { (name, value) -> setRequestProperty(name, value) }
                     }
 
-                    val payload = JSONObject().put("email", email).toString()
                     connection.outputStream.use {
                         it.write(payload.toByteArray(Charsets.UTF_8))
                     }
