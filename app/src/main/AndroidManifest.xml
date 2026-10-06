@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.CALL_PHONE"/>
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <application
         android:theme="@style/AppTheme"
         android:label="Battery Nag"
@@ -27,5 +28,12 @@
         </receiver>
         <receiver android:name=".ToneReceiver" android:exported="false"/>
         <receiver android:name=".SnoozeReceiver" android:exported="false"/>
+        <activity
+            android:name=".NagCallActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@style/NagCallTheme"/>
     </application>
 </manifest>

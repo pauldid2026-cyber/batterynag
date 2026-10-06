@@ -2,11 +2,13 @@ package com.batterynag.app
 
 import android.Manifest
 import android.app.Activity
+import android.app.NotificationManager
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebChromeClient
@@ -29,6 +31,7 @@ class MainActivity : Activity() {
         private const val EMAIL_KEY = "registered_email"
         private const val PHONE_PREFS = "battery_nag_phone"
         private const val PHONE_KEY = "call_number"
+        private const val KEY_FSI_WARNED = "fsi_warned"
         private const val SONGSLIKE_PLAYLIST_URL = "https://open.songslike.com/battery+nag"
         private const val REGISTER_URL =
             "https://open.songslike.com/battery-nag-api/index.php/register"
@@ -78,6 +81,29 @@ class MainActivity : Activity() {
             ActivityCompat.requestPermissions(this, missing.toTypedArray(), 10)
         }
         BatteryNag.checkCurrentBattery(this)
+        warnIfFullScreenIntentBlocked()
+    }
+
+    /**
+     * Android 14 and later can withhold full-screen intents, and without one
+     * the low-battery call can only be raised by tapping a notification
+     * instead of appearing over the lock screen. Warn once, on launch, so the
+     * restriction can be lifted in Settings.
+     */
+    private fun warnIfFullScreenIntentBlocked() {
+        if (Build.VERSION.SDK_INT < 34) return
+        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        if (manager.canUseFullScreenIntent()) return
+
+        val prefs = getSharedPreferences(PHONE_PREFS, MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_FSI_WARNED, false)) return
+        prefs.edit().putBoolean(KEY_FSI_WARNED, true).apply()
+
+        Toast.makeText(
+            this,
+            "Battery Nag cannot raise calls over the lock screen. Allow full-screen alerts for this app in Settings.",
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     inner class BatteryNagBridge {

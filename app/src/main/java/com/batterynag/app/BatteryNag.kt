@@ -3,7 +3,6 @@ package com.batterynag.app
 import android.app.*
 import android.content.*
 import android.media.*
-import android.net.Uri
 import android.os.*
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
@@ -29,6 +28,9 @@ object BatteryNag {
     private const val CALL_COUNT = "call_count"
     private const val CALL_RETRY_MS = 45_000L
     private const val CALLS_PER_DECREMENT = 2
+    private const val CALL_CHANNEL = "battery_call"
+    private const val CALL_FULLSCREEN_REQ = 3001
+    const val CALL_NOTIF_ID = 43
     private val thresholds = listOf(30, 20, 15, 10, 5)
     private val emailExecutor = Executors.newSingleThreadExecutor()
     @Volatile private var nagPlayer: MediaPlayer? = null
@@ -241,6 +243,21 @@ object BatteryNag {
         if (count < CALLS_PER_DECREMENT) scheduleCallRetry(c)
     }
 
+    /**
+     * Hands the outgoing call to the system.
+     *
+     * Android 10 and later refuse to start an activity from a background
+     * receiver, so the alarm itself cannot dial - that path is blocked
+     * silently, with no exception to catch. Instead a full-screen intent
+     * notification is posted and the system raises NagCallActivity over the
+     * lock screen; with the app in the foreground, ACTION_CALL is allowed.
+     *
+     * A direct launch is also attempted as a fast path on devices that still
+     * permit it. Both routes converge on NagCallActivity, which only lets one
+     * of them dial.
+     *
+     * Returns true once the call has been handed over by either route.
+     */
     private fun placeCall(c: Context, number: String): Boolean {
         if (Build.VERSION.SDK_INT >= 23 &&
             c.checkSelfPermission(android.Manifest.permission.CALL_PHONE) !=
@@ -251,14 +268,59 @@ object BatteryNag {
         val digits = number.filter { it.isDigit() }
         val normalized = if (number.trimStart().startsWith("+")) "+" + digits else digits
         if (normalized.isEmpty() || normalized == "+") return false
-        return try {
-            val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$normalized"))
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            c.startActivity(intent)
-            true
+
+        postCallNotification(c, normalized)
+
+        try {
+            c.startActivity(
+                Intent(c, NagCallActivity::class.java)
+                    .putExtra(NagCallActivity.EXTRA_NUMBER, normalized)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            )
         } catch (_: Exception) {
-            false
+            // Expected while the app is backgrounded on Android 10+. The
+            // full-screen intent posted above is the fallback.
         }
+        return true
+    }
+
+    /**
+     * Raises the call prompt above the lock screen. This is the route that
+     * survives a background alarm on Android 10 and later.
+     */
+    private fun postCallNotification(c: Context, number: String) {
+        val manager = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channel = NotificationChannel(CALL_CHANNEL, "Battery phone calls", NotificationManager.IMPORTANCE_HIGH).apply {
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 700, 300, 700)
+        }
+        manager.createNotificationChannel(channel)
+
+        val launch = PendingIntent.getActivity(
+            c,
+            CALL_FULLSCREEN_REQ,
+            Intent(c, NagCallActivity::class.java)
+                .putExtra(NagCallActivity.EXTRA_NUMBER, number)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val body = "Battery is critically low - Battery Nag is calling you."
+        manager.notify(
+            CALL_NOTIF_ID,
+            NotificationCompat.Builder(c, CALL_CHANNEL)
+                .setSmallIcon(android.R.drawable.ic_menu_call)
+                .setContentTitle("Battery Nag - answering now")
+                .setContentText(body)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setAutoCancel(true)
+                .setTimeoutAfter(TimeUnit.HOURS.toMillis(1))
+                .setContentIntent(launch)
+                .setFullScreenIntent(launch, true)
+                .build()
+        )
     }
 
     private fun scheduleCallRetry(c: Context) {
@@ -299,6 +361,9 @@ object BatteryNag {
         stopNag()
         val manager = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.cancel(42)
+        // Plugging in or snoozing withdraws any call that has not been
+        // answered yet.
+        manager.cancel(CALL_NOTIF_ID)
     }
 
     private fun notify(c: Context, p: Int) {
