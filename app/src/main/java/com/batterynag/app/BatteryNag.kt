@@ -21,6 +21,9 @@ object BatteryNag {
     private const val SNOOZE_UNTIL = "snooze_until"
     private const val LAST_EVAL = "last_eval"
     private const val LAST_STEPS = "last_steps"
+    // How often to re-check while the battery is still healthy. Without a
+    // re-check here nothing ever runs again, so the drop past 30% is missed.
+    private const val WATCH_DELAY = 300_000L
     private const val CHANNEL = "battery_warning"
     private const val REQ = 1001
     private const val CALL_REQ = 1002
@@ -55,11 +58,16 @@ object BatteryNag {
         if (charging) {
             resetThresholds(c)
             stop(c)
+            runCatching { schedule(c, WATCH_DELAY) }
             return
         }
         if (p > 30) {
             stop(c)
             resetThresholds(c)
+            // Keep watching. Returning here with no next check meant a phone
+            // installed above 30% stayed silent forever, draining past every
+            // threshold without the nag ever running.
+            runCatching { schedule(c, WATCH_DELAY) }
             return
         }
         if (snoozed) return
