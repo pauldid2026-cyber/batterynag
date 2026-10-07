@@ -23,6 +23,7 @@ button:active{transform:scale(.99)}
 .snooze-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .snooze-grid button{margin:0;background:#171717;color:#fff;border:1px solid #333}
 #result{text-align:center;min-height:22px;color:#bbb;font-size:14px;padding:4px 8px}
+.selftest-out{text-align:left;color:#8f8;font-size:12px;line-height:1.6;background:#0b0b0b;border:1px solid #333;border-radius:12px;padding:14px;white-space:pre-wrap;margin:10px 0 4px;word-break:break-word}
 @media(max-width:360px){body{padding-left:14px;padding-right:14px}h1{font-size:32px}.snooze-grid{grid-template-columns:1fr}}
 </style>
 </head>
@@ -50,6 +51,10 @@ button:active{transform:scale(.99)}
 <button onclick="snooze(4)">4 HOURS</button>
 <button onclick="snooze(5)">5 HOURS</button>
 </div>
+<div class="divider"></div>
+<div class="snooze-title">DIAGNOSTICS</div>
+<button onclick="runSelfTest()">RUN THE NAG SELF TEST</button>
+<div id="selftest" class="selftest-out" style="display:none"></div>
 </div>
 <script>
 function setStatus(text){document.getElementById('status').textContent=text}
@@ -80,6 +85,18 @@ function onSongslikeVideoResults(videoIds){
  }
 }
 function snooze(hours){BatteryNag.snooze(hours);setResult('Warnings snoozed for '+hours+' hour'+(hours===1?'':'s')+'.');refresh()}
+function runSelfTest(){
+ const box=document.getElementById('selftest');
+ box.style.display='block';
+ box.textContent='running...';
+ if(!window.BatteryNag){box.textContent='The self test only runs inside the Android app.';return}
+ // The bridge call blocks while the test email is sent, so let the
+ // "running" message paint before it freezes the page.
+ setTimeout(function(){
+  try{box.textContent=BatteryNag.selfTest()}
+  catch(e){box.textContent='self test failed: '+e}
+ },80);
+}
 window.onRegistrationResult=onRegistrationResult;
 window.onSongslikeVideoResults=onSongslikeVideoResults;
 document.addEventListener('DOMContentLoaded',refresh);

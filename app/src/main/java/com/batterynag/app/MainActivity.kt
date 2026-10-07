@@ -131,6 +131,13 @@ class MainActivity : Activity() {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(SONGSLIKE_PLAYLIST_URL)))
         }
 
+        /**
+         * Blocks while it sends the test email, so the page hands back to the
+         * browser first and shows "running" rather than freezing.
+         */
+        @JavascriptInterface
+        fun selfTest(): String = BatteryNag.runSelfTest(this@MainActivity)
+
         @JavascriptInterface
         fun setCallNumber(number: String) {
             val cleaned = number.trim()

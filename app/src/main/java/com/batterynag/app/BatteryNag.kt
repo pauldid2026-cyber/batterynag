@@ -19,6 +19,7 @@ object BatteryNag {
     private const val ALERT_PATH = "/battery-nag-api/index.php/alert"
     private const val CLIENT_API_KEY = "batterynag-public-client"
     private const val SNOOZE_UNTIL = "snooze_until"
+    private const val LAST_EVAL = "last_eval"
     private const val CHANNEL = "battery_warning"
     private const val REQ = 1001
     private const val CALL_REQ = 1002
@@ -31,6 +32,7 @@ object BatteryNag {
     private const val CALL_CHANNEL = "battery_call"
     private const val CALL_FULLSCREEN_REQ = 3001
     const val CALL_NOTIF_ID = 43
+    const val TEST_NOTIF_ID = 44
     private val thresholds = listOf(30, 20, 15, 10, 5)
     private val emailExecutor = Executors.newSingleThreadExecutor()
     @Volatile private var nagPlayer: MediaPlayer? = null
@@ -43,7 +45,12 @@ object BatteryNag {
     }
 
     fun evaluate(c: Context, p: Int) {
-        if (isCharging(c)) {
+        val charging = isCharging(c)
+        val snoozed = isSnoozed(c)
+        // Leave a trace of the most recent check, so a phone that stayed
+        // silent can be told apart from one where this never ran at all.
+        recordEval(c, p, charging, snoozed)
+        if (charging) {
             resetThresholds(c)
             stop(c)
             return
@@ -53,7 +60,7 @@ object BatteryNag {
             resetThresholds(c)
             return
         }
-        if (isSnoozed(c)) return
+        if (snoozed) return
         maybeCall(c, p)
         sendThresholdEmail(c, p)
         notify(c, p)
@@ -125,9 +132,15 @@ object BatteryNag {
      * Playback starts once and repeats until the phone is plugged in or
      * snoozed, at which point the player is released immediately.
      */
-    private fun playNag(c: Context) {
-        if (isSnoozed(c) || isCharging(c)) return
-        if (nagPlayer != null) return
+    private fun playNag(c: Context, force: Boolean = false) {
+        if (force) {
+            // The self test restarts playback so the track is heard from
+            // the beginning even if a run is already going.
+            stopNag()
+        } else {
+            if (isSnoozed(c) || isCharging(c)) return
+            if (nagPlayer != null) return
+        }
         try {
             val fd = c.resources.openRawResourceFd(R.raw.nag_alert)
             if (fd == null) {
@@ -359,6 +372,138 @@ object BatteryNag {
             Intent(c, ToneReceiver::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+
+    /** Battery percentage reported by the system, or -1 if unavailable. */
+    private fun batteryPercent(c: Context): Int {
+        val b = c.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level = b?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = b?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+        return if (level >= 0) level * 100 / scale else -1
+    }
+
+    private fun recordEval(c: Context, p: Int, charging: Boolean, snoozed: Boolean) {
+        val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+        c.getSharedPreferences(PREFS, 0).edit()
+            .putString(LAST_EVAL, "$time, battery $p%, charging=$charging, snoozed=$snoozed")
+            .apply()
+    }
+
+    /**
+     * Buzzes directly. The warning notification carries its own vibration,
+     * so if notifications are blocked the phone would otherwise never buzz
+     * at all - this proves the hardware works independently of that.
+     */
+    private fun vibrateDirect(c: Context, ms: Long) {
+        try {
+            val v = c.getSystemService(Vibrator::class.java) ?: return
+            v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
+        } catch (_: Exception) {
+        }
+    }
+
+    /** A dismissible test notification; the real warning is not swipeable. */
+    private fun postTestNotification(c: Context, p: Int) {
+        val manager = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL, "Battery warnings", NotificationManager.IMPORTANCE_HIGH).apply {
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 250, 500)
+            }
+        )
+        manager.notify(
+            TEST_NOTIF_ID,
+            NotificationCompat.Builder(c, CHANNEL)
+                .setSmallIcon(android.R.drawable.ic_lock_idle_low_battery)
+                .setContentTitle("Battery Nag self test")
+                .setContentText("Battery $p% - notification and vibration are working.")
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setVibrate(longArrayOf(0, 500, 250, 500))
+                .setAutoCancel(true)
+                .build()
+        )
+    }
+
+    /** Sends a real alert email and reports the exact HTTP outcome. */
+    private fun sendTestEmail(c: Context): String {
+        val email = c.getSharedPreferences(EMAIL_PREFS, 0).getString(EMAIL_KEY, null)?.trim().orEmpty()
+        if (email.isEmpty()) return "skipped - no address registered"
+        var connection: HttpURLConnection? = null
+        return try {
+            val percent = batteryPercent(c).coerceIn(0, 100)
+            val body = JSONObject().put("email", email).put("threshold", 30).put("percent", percent).toString()
+            val signed = RequestSigner.headers(BuildConfig.SIGNING_SECRET, "POST", ALERT_PATH, body)
+            connection = (URL(ALERT_URL).openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 10000
+                readTimeout = 15000
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("X-BatteryNag-Key", CLIENT_API_KEY)
+                signed.forEach { (name, value) -> setRequestProperty(name, value) }
+            }
+            connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            "HTTP $code ${text.take(110)}"
+        } catch (e: Exception) {
+            "failed: ${e.javaClass.simpleName} ${e.message}"
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
+    /**
+     * Reports every gate that can silence a real warning, then fires the
+     * vibration, track, notification and email anyway so each can be checked
+     * at any battery level. Runs on the WebView bridge thread, so the
+     * blocking network call is fine here.
+     */
+    fun runSelfTest(c: Context): String {
+        val p = batteryPercent(c)
+        val charging = isCharging(c)
+        val snoozed = isSnoozed(c)
+        val last = c.getSharedPreferences(PREFS, 0).getString(LAST_EVAL, null)
+            ?: "NEVER - the warning code has not run since install"
+        val email = c.getSharedPreferences(EMAIL_PREFS, 0).getString(EMAIL_KEY, null)?.trim().orEmpty()
+        val phone = c.getSharedPreferences(PHONE_PREFS, 0).getString(PHONE_KEY, null)?.trim().orEmpty()
+
+        val blocker = when {
+            charging -> "SILENT: the phone is charging"
+            p > 30 -> "SILENT: battery is above 30%"
+            snoozed -> "SILENT: snoozed"
+            else -> "a real warning WOULD fire right now"
+        }
+        val notif = if (Build.VERSION.SDK_INT >= 33 &&
+            c.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            "BLOCKED - permission not granted"
+        } else {
+            "allowed"
+        }
+
+        vibrateDirect(c, 900)
+        playNag(c, force = true)
+        postTestNotification(c, p)
+        val emailResult = sendTestEmail(c)
+
+        return listOf(
+            "battery: $p%   charging: $charging   snoozed: $snoozed",
+            "last real check: $last",
+            "",
+            "real warning: $blocker",
+            "notifications: $notif",
+            "email: " + if (email.isEmpty()) "NOT REGISTERED" else "registered ($email)",
+            "phone: " + if (phone.isEmpty()) "not saved" else "saved",
+            "",
+            "-> vibration fired (900ms)",
+            "-> mp3 playing (looping)",
+            "-> notification posted",
+            "-> test email: $emailResult"
+        ).joinToString("\n")
+    }
 
     fun stop(c: Context) {
         val alarm = c.getSystemService(Context.ALARM_SERVICE) as AlarmManager
