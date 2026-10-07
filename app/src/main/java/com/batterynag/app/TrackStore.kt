@@ -254,7 +254,9 @@ object TrackStore {
             }
         }.getOrNull() ?: return null
         return try {
-            if (conn.responseCode in 200..299) {
+            if (conn.responseCode in 200..299 &&
+                !conn.contentType.orEmpty().contains("text/html", ignoreCase = true)
+            ) {
                 conn.inputStream.bufferedReader().use { it.readText() }
             } else null
         } catch (_: Exception) {
@@ -284,10 +286,17 @@ object TrackStore {
         }.getOrNull() ?: return false
         return try {
             if (conn.responseCode !in 200..299) return false
+            // A missing file here is answered with the site's own index page
+            // and a 200, so anything claiming to be HTML is refused before its
+            // body is read - otherwise an 800 KB page lands in the pool and
+            // costs the phone the data this whole design exists to save.
+            if (conn.contentType.orEmpty().contains("text/html", ignoreCase = true)) {
+                return false
+            }
             conn.inputStream.use { input ->
                 temp.outputStream().use { output -> input.copyTo(output) }
             }
-            if (temp.length() < 1024L) {
+            if (!isMp3(temp)) {
                 temp.delete()
                 false
             } else {
@@ -305,6 +314,23 @@ object TrackStore {
         } finally {
             conn.disconnect()
         }
+    }
+
+    /**
+     * An MP3 opens with an ID3 tag or an MPEG frame sync. The header is the
+     * last line of defence against the server's HTML fallback being accepted
+     * as audio when it does not announce itself as HTML.
+     */
+    private fun isMp3(file: File): Boolean {
+        if (file.length() < 1024L) return false
+        val head = ByteArray(3)
+        val read = file.inputStream().use { it.read(head) }
+        if (read < 3) return false
+        if (head[0] == 'I'.code.toByte() && head[1] == 'D'.code.toByte() &&
+            head[2] == '3'.code.toByte()
+        ) return true
+        return (head[0].toInt() and 0xFF) == 0xFF &&
+            (head[1].toInt() and 0xE0) == 0xE0
     }
 
     // -- stock reporting ------------------------------------------------------
