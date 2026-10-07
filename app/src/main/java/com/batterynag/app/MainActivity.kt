@@ -138,6 +138,15 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun selfTest(): String = BatteryNag.runSelfTest(this@MainActivity)
 
+        /** Plays the bundled track straight away, with no conditions. */
+        @JavascriptInterface
+        fun playSong(): String = BatteryNag.playSong(this@MainActivity)
+
+        @JavascriptInterface
+        fun stopSong() {
+            BatteryNag.stopNag()
+        }
+
         @JavascriptInterface
         fun setCallNumber(number: String) {
             val cleaned = number.trim()

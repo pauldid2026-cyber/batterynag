@@ -52,6 +52,11 @@ button:active{transform:scale(.99)}
 <button onclick="snooze(5)">5 HOURS</button>
 </div>
 <div class="divider"></div>
+<div class="snooze-title">NAG TRACK</div>
+<button onclick="playSong()" style="background:#3f6;margin-top:0">&#9654; PLAY I'M ALL OUT OF LOVE</button>
+<button onclick="stopSong()">STOP THE TRACK</button>
+<div id="playout" class="selftest-out" style="display:none"></div>
+<div class="divider"></div>
 <div class="snooze-title">DIAGNOSTICS</div>
 <button onclick="runSelfTest()">RUN THE NAG SELF TEST</button>
 <div id="selftest" class="selftest-out" style="display:none"></div>
@@ -85,6 +90,24 @@ function onSongslikeVideoResults(videoIds){
  }
 }
 function snooze(hours){BatteryNag.snooze(hours);setResult('Warnings snoozed for '+hours+' hour'+(hours===1?'':'s')+'.');refresh()}
+function playSong(){
+ const box=document.getElementById('playout');
+ box.style.display='block';
+ box.textContent='starting...';
+ if(!window.BatteryNag){box.textContent='Play only works inside the Android app.';return}
+ // The bridge call blocks while the track prepares, so let the
+ // "starting" message paint before it freezes the page.
+ setTimeout(function(){
+  try{box.textContent=BatteryNag.playSong()}
+  catch(e){box.textContent='play failed: '+e}
+ },80);
+}
+function stopSong(){
+ try{if(window.BatteryNag){BatteryNag.stopSong()}}catch(e){}
+ const box=document.getElementById('playout');
+ box.style.display='block';
+ box.textContent='stopped';
+}
 function runSelfTest(){
  const box=document.getElementById('selftest');
  box.style.display='block';

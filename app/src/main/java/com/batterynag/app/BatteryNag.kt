@@ -20,6 +20,7 @@ object BatteryNag {
     private const val CLIENT_API_KEY = "batterynag-public-client"
     private const val SNOOZE_UNTIL = "snooze_until"
     private const val LAST_EVAL = "last_eval"
+    private const val LAST_STEPS = "last_steps"
     private const val CHANNEL = "battery_warning"
     private const val REQ = 1001
     private const val CALL_REQ = 1002
@@ -36,6 +37,7 @@ object BatteryNag {
     private val thresholds = listOf(30, 20, 15, 10, 5)
     private val emailExecutor = Executors.newSingleThreadExecutor()
     @Volatile private var nagPlayer: MediaPlayer? = null
+    @Volatile private var trackPlaying: Boolean = false
 
     fun checkCurrentBattery(c: Context) {
         val b = c.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
@@ -61,10 +63,15 @@ object BatteryNag {
             return
         }
         if (snoozed) return
-        maybeCall(c, p)
-        sendThresholdEmail(c, p)
-        notify(c, p)
-        playNag(c)
+        // Each step stands on its own. A blocked notification or a rejected
+        // call must not take the sound and the email down with it - run
+        // loose, a single exception killed the entire warning silently and
+        // cancelled every check after it.
+        val errors = mutableListOf<String>()
+        runCatching { maybeCall(c, p) }.onFailure { errors += "call: " + it.javaClass.simpleName }
+        runCatching { sendThresholdEmail(c, p) }.onFailure { errors += "email: " + it.javaClass.simpleName }
+        runCatching { notify(c, p) }.onFailure { errors += "notify: " + it.javaClass.simpleName }
+        runCatching { playNag(c) }.onFailure { errors += "audio: " + it.javaClass.simpleName }
         val delay = when {
             p <= 5 -> 15000L
             p <= 10 -> 30000L
@@ -73,7 +80,8 @@ object BatteryNag {
             p <= 25 -> 300000L
             else -> 600000L
         }
-        schedule(c, delay)
+        runCatching { schedule(c, delay) }.onFailure { errors += "schedule: " + it.javaClass.simpleName }
+        recordSteps(c, errors)
     }
 
     private fun sendThresholdEmail(c: Context, p: Int) {
@@ -132,6 +140,29 @@ object BatteryNag {
      * Playback starts once and repeats until the phone is plugged in or
      * snoozed, at which point the player is released immediately.
      */
+    /**
+     * The track plays on the alarm stream, so an alarm volume of zero makes
+     * the whole nag silent even while playback itself is healthy. Lift it off
+     * zero rather than let a warning nobody can hear count as a warning.
+     */
+    private fun ensureAudible(c: Context): String {
+        return try {
+            val audio = c.getSystemService(AudioManager::class.java)
+                ?: return "alarm volume: unavailable"
+            val max = audio.getStreamMaxVolume(AudioManager.STREAM_ALARM).coerceAtLeast(1)
+            val current = audio.getStreamVolume(AudioManager.STREAM_ALARM)
+            if (current == 0) {
+                val target = (max / 2).coerceAtLeast(1)
+                audio.setStreamVolume(AudioManager.STREAM_ALARM, target, 0)
+                "alarm volume was 0 (silent) - raised to $target/$max"
+            } else {
+                "alarm volume $current/$max"
+            }
+        } catch (e: Exception) {
+            "alarm volume check failed: ${e.javaClass.simpleName}"
+        }
+    }
+
     private fun playNag(c: Context, force: Boolean = false) {
         if (force) {
             // The self test restarts playback so the track is heard from
@@ -142,6 +173,9 @@ object BatteryNag {
             if (nagPlayer != null) return
         }
         try {
+            // The alarm stream can be muted, which would make the warning
+            // completely inaudible while playback itself looks healthy.
+            ensureAudible(c)
             val fd = c.resources.openRawResourceFd(R.raw.nag_alert)
             if (fd == null) {
                 tone(c)
@@ -161,6 +195,7 @@ object BatteryNag {
             mp.setOnPreparedListener { player ->
                 try {
                     player.start()
+                    trackPlaying = true
                 } catch (_: Exception) {
                 }
             }
@@ -180,7 +215,10 @@ object BatteryNag {
 
     /** Stops and releases a player if it is still playing. */
     private fun releasePlayer(player: MediaPlayer) {
-        if (nagPlayer === player) nagPlayer = null
+        if (nagPlayer === player) {
+            nagPlayer = null
+            trackPlaying = false
+        }
         try {
             player.release()
         } catch (_: Exception) {
@@ -191,6 +229,7 @@ object BatteryNag {
     fun stopNag() {
         val player = nagPlayer ?: return
         nagPlayer = null
+        trackPlaying = false
         try {
             if (player.isPlaying) player.stop()
         } catch (_: Exception) {
@@ -385,7 +424,14 @@ object BatteryNag {
         val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
         c.getSharedPreferences(PREFS, 0).edit()
             .putString(LAST_EVAL, "$time, battery $p%, charging=$charging, snoozed=$snoozed")
+            .remove(LAST_STEPS)
             .apply()
+    }
+
+    /** Records how far the warning got, so a silent phone can be explained. */
+    private fun recordSteps(c: Context, errors: List<String>) {
+        val value = if (errors.isEmpty()) "all steps ran" else errors.joinToString("; ")
+        c.getSharedPreferences(PREFS, 0).edit().putString(LAST_STEPS, value).apply()
     }
 
     /**
@@ -484,25 +530,57 @@ object BatteryNag {
             "allowed"
         }
 
+        val volume = ensureAudible(c)
         vibrateDirect(c, 900)
         playNag(c, force = true)
         postTestNotification(c, p)
         val emailResult = sendTestEmail(c)
+        val steps = c.getSharedPreferences(PREFS, 0).getString(LAST_STEPS, null) ?: "no steps run yet"
 
         return listOf(
             "battery: $p%   charging: $charging   snoozed: $snoozed",
             "last real check: $last",
+            "last real steps: $steps",
             "",
             "real warning: $blocker",
             "notifications: $notif",
             "email: " + if (email.isEmpty()) "NOT REGISTERED" else "registered ($email)",
             "phone: " + if (phone.isEmpty()) "not saved" else "saved",
             "",
+            volume,
             "-> vibration fired (900ms)",
             "-> mp3 playing (looping)",
             "-> notification posted",
             "-> test email: $emailResult"
         ).joinToString("\n")
+    }
+
+    /**
+     * Plays the bundled track on demand with no battery, snooze or charging
+     * condition attached, and reports what happened. One obvious way to prove
+     * the audio path works before blaming the warning logic.
+     */
+    fun playSong(c: Context): String {
+        val volume = ensureAudible(c)
+        trackPlaying = false
+        playNag(c, force = true)
+        // prepareAsync resolves off-thread, so give start() a moment to run
+        // before reporting whether the track actually came up.
+        var waited = 0
+        while (!trackPlaying && waited < 2000) {
+            Thread.sleep(50)
+            waited += 50
+        }
+        val lines = mutableListOf(
+            if (trackPlaying) "playing: I'm All Out Of Love (looping)" else "playing: NOT STARTED",
+            volume,
+            "battery: ${batteryPercent(c)}%   charging: ${isCharging(c)}   snoozed: ${isSnoozed(c)}"
+        )
+        if (!trackPlaying) {
+            lines += ""
+            lines += "The track did not start. Run the self test below for detail."
+        }
+        return lines.joinToString("\n")
     }
 
     fun stop(c: Context) {
