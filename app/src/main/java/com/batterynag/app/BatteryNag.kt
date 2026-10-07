@@ -17,6 +17,14 @@ object BatteryNag {
     private const val EMAIL_KEY = "registered_email"
     private const val ALERT_URL = "https://open.songslike.com/battery-nag-api/index.php/alert"
     private const val ALERT_PATH = "/battery-nag-api/index.php/alert"
+    private const val BATTERY_URL = "https://open.songslike.com/battery-nag-api/index.php/battery"
+    private const val BATTERY_PATH = "/battery-nag-api/index.php/battery"
+    private const val REPORT_ATTEMPT = "battery_report_attempt"
+    private const val REPORT_PERCENT = "battery_report_percent"
+    /** Quiet period once the level itself has stopped moving. */
+    private const val REPORT_QUIET = 300_000L
+    /** Minimum gap while it is moving, so a fast drain cannot hammer it. */
+    private const val REPORT_MIN_GAP = 60_000L
     private const val CLIENT_API_KEY = "batterynag-public-client"
     private const val SNOOZE_UNTIL = "snooze_until"
     private const val LAST_EVAL = "last_eval"
@@ -59,6 +67,10 @@ object BatteryNag {
         // Leave a trace of the most recent check, so a phone that stayed
         // silent can be told apart from one where this never ran at all.
         recordEval(c, p, charging, snoozed)
+        // Before any of the returns below. A phone sitting at 60% on charge
+        // still has to be visible on the website and in the tray, and this
+        // is the only call that runs in every branch.
+        runCatching { reportBattery(c, p, charging) }
         if (charging) {
             resetThresholds(c)
             stop(c)
@@ -128,6 +140,59 @@ object BatteryNag {
                 }
             } catch (_: Exception) {
                 // Keep the threshold unmarked so a later check can retry.
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    /**
+     * Publishes the current level so the website and the desktop tray icon
+     * can show it. This is a status post, not a warning: nothing is emailed,
+     * notified or nagged here, and a failure is silently retried next check.
+     */
+    fun reportBattery(c: Context, p: Int, charging: Boolean) {
+        val email = c.getSharedPreferences(EMAIL_PREFS, 0).getString(EMAIL_KEY, null)?.trim().orEmpty()
+        // Nothing to report until the app has been told who this phone is.
+        if (email.isBlank()) return
+
+        val prefs = c.getSharedPreferences(PREFS, 0)
+        val sinceAttempt = System.currentTimeMillis() - prefs.getLong(REPORT_ATTEMPT, 0L)
+        val unchanged = p == prefs.getInt(REPORT_PERCENT, -1)
+        if (if (unchanged) sinceAttempt < REPORT_QUIET else sinceAttempt < REPORT_MIN_GAP) return
+
+        // Stamped before the request goes out, so a server that is down
+        // costs one attempt per check instead of a burst on every one.
+        prefs.edit().putLong(REPORT_ATTEMPT, System.currentTimeMillis()).apply()
+
+        emailExecutor.execute {
+            var connection: HttpURLConnection? = null
+            try {
+                val body = JSONObject()
+                    .put("email", email)
+                    .put("percent", p)
+                    .put("charging", charging)
+                    .toString()
+                val signed = RequestSigner.headers(BuildConfig.SIGNING_SECRET, "POST", BATTERY_PATH, body)
+
+                connection = (URL(BATTERY_URL).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 5000
+                    readTimeout = 10000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("X-BatteryNag-Key", CLIENT_API_KEY)
+                    signed.forEach { (name, value) -> setRequestProperty(name, value) }
+                }
+                connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                if (connection.responseCode in 200..299) {
+                    // Only a delivered report counts as the last known level,
+                    // otherwise a rejected one would suppress every retry.
+                    prefs.edit().putInt(REPORT_PERCENT, p).apply()
+                }
+            } catch (_: Exception) {
+                // The next check tries again. Nothing here is urgent.
             } finally {
                 connection?.disconnect()
             }
