@@ -249,9 +249,14 @@ object BatteryNag {
         if (chargingWatcher != null) return
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
+                // Two independent signals: the plug-in broadcast and the
+                // charging flag carried on the battery intent. Either is
+                // enough to cut the track, so one missed extra cannot leave
+                // the song running after the charger is in.
                 val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
                 if (status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                    status == BatteryManager.BATTERY_STATUS_FULL
+                    status == BatteryManager.BATTERY_STATUS_FULL ||
+                    isCharging(ctx)
                 ) {
                     stop(ctx)
                     resetThresholds(ctx)
@@ -262,7 +267,11 @@ object BatteryNag {
             // Registered and unregistered on the same context, or Android
             // reports "Receiver not registered" and the watcher leaks.
             val app = c.applicationContext
-            app.registerReceiver(receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_POWER_CONNECTED)
+                addAction(Intent.ACTION_BATTERY_CHANGED)
+            }
+            app.registerReceiver(receiver, filter)
             chargingWatcher = receiver
             watcherContext = app
         } catch (_: Exception) {
