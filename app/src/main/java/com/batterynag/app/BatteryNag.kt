@@ -41,6 +41,8 @@ object BatteryNag {
     private val emailExecutor = Executors.newSingleThreadExecutor()
     @Volatile private var nagPlayer: MediaPlayer? = null
     @Volatile private var trackPlaying: Boolean = false
+    @Volatile private var chargingWatcher: BroadcastReceiver? = null
+    @Volatile private var watcherContext: Context? = null
 
     fun checkCurrentBattery(c: Context) {
         val b = c.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
@@ -214,9 +216,12 @@ object BatteryNag {
                 true
             }
             nagPlayer = mp
+            watchForCharger(c)
             mp.prepareAsync()
         } catch (_: Exception) {
             nagPlayer = null
+            trackPlaying = false
+            stopWatching()
             tone(c)
         }
     }
@@ -226,10 +231,55 @@ object BatteryNag {
         if (nagPlayer === player) {
             nagPlayer = null
             trackPlaying = false
+            stopWatching()
         }
         try {
             player.release()
         } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * Plugging in has to cut the track the moment it happens. Waiting for the
+     * next scheduled check, or for the power broadcast to reach a manifest
+     * receiver, leaves the song running for minutes after the charger is in.
+     * So while the track is playing the app watches the battery itself.
+     */
+    private fun watchForCharger(c: Context) {
+        if (chargingWatcher != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                if (status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                    status == BatteryManager.BATTERY_STATUS_FULL
+                ) {
+                    stop(ctx)
+                    resetThresholds(ctx)
+                }
+            }
+        }
+        try {
+            // Registered and unregistered on the same context, or Android
+            // reports "Receiver not registered" and the watcher leaks.
+            val app = c.applicationContext
+            app.registerReceiver(receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            chargingWatcher = receiver
+            watcherContext = app
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Drops the battery watcher taken out by [watchForCharger]. */
+    private fun stopWatching() {
+        val receiver = chargingWatcher ?: return
+        chargingWatcher = null
+        val context = watcherContext
+        watcherContext = null
+        if (context != null) {
+            try {
+                context.unregisterReceiver(receiver)
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -238,6 +288,7 @@ object BatteryNag {
         val player = nagPlayer ?: return
         nagPlayer = null
         trackPlaying = false
+        stopWatching()
         try {
             if (player.isPlaying) player.stop()
         } catch (_: Exception) {
