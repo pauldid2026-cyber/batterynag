@@ -198,7 +198,9 @@ object TrackStore {
         }
 
         val marks = played(c, bucket)
-        var held = pool(c, bucket)
+        // Held is rewritten with filter and plus, both of which hand back an
+        // immutable List - declaring it as one is what lets it be reassigned.
+        var held: List<String> = pool(c, bucket)
         val dir = dir(c, bucket)
         held = held.filter { File(dir, "$it.mp3").isFile }
         for (entry in entries(manifest, bucket)) {
