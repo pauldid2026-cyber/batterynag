@@ -53,7 +53,8 @@ button:active{transform:scale(.99)}
 </div>
 <div class="divider"></div>
 <div class="snooze-title">NAG TRACK</div>
-<button onclick="playSong()" style="background:#3f6;margin-top:0">&#9654; PLAY I'M ALL OUT OF LOVE</button>
+<div id="trackstock" class="selftest-out" style="display:none"></div>
+<button onclick="playSong()" style="background:#3f6;margin-top:0">&#9654; PLAY THE NAG TRACK</button>
 <button onclick="stopSong()">STOP THE TRACK</button>
 <div id="playout" class="selftest-out" style="display:none"></div>
 <div class="divider"></div>
@@ -65,6 +66,20 @@ button:active{transform:scale(.99)}
 function setStatus(text){document.getElementById('status').textContent=text}
 function setResult(text){document.getElementById('result').textContent=text}
 function refresh(){if(window.BatteryNag){setStatus(BatteryNag.getStatus())}}
+function showTrackStatus(line){
+ const box=document.getElementById('trackstock');
+ if(!box){return}
+ if(!line){box.style.display='none';box.textContent='';return}
+ const short=line.indexOf('NEW MP3s NEEDED')>=0;
+ box.style.display='block';
+ box.style.color=short?'#f77':'#8f8';
+ box.textContent='TRACKS - '+line;
+}
+function refreshTrackStatus(){
+ if(window.BatteryNag){
+  try{showTrackStatus(BatteryNag.trackStatus())}catch(e){}
+ }
+}
 function openPlaylist(){if(window.BatteryNag){BatteryNag.openPlaylist()}else{window.location.href='https://open.songslike.com/battery+nag'}}
 function registerEmail(){
  const email=document.getElementById('email').value.trim();
@@ -122,7 +137,9 @@ function runSelfTest(){
 }
 window.onRegistrationResult=onRegistrationResult;
 window.onSongslikeVideoResults=onSongslikeVideoResults;
+window.onTrackStatus=showTrackStatus;
 document.addEventListener('DOMContentLoaded',refresh);
+document.addEventListener('DOMContentLoaded',refreshTrackStatus);
 document.addEventListener('DOMContentLoaded',function(){
  if(window.BatteryNag){BatteryNag.searchSongslike('im all out of love')}
 });

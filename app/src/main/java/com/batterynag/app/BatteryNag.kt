@@ -43,6 +43,8 @@ object BatteryNag {
     @Volatile private var trackPlaying: Boolean = false
     @Volatile private var chargingWatcher: BroadcastReceiver? = null
     @Volatile private var watcherContext: Context? = null
+    /** What the current run is actually playing, for the notification and self test. */
+    @Volatile private var lastTrack: String = "I'm All Out Of Love"
 
     fun checkCurrentBattery(c: Context) {
         val b = c.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
@@ -80,8 +82,10 @@ object BatteryNag {
         val errors = mutableListOf<String>()
         runCatching { maybeCall(c, p) }.onFailure { errors += "call: " + it.javaClass.simpleName }
         runCatching { sendThresholdEmail(c, p) }.onFailure { errors += "email: " + it.javaClass.simpleName }
+        // Sound first: the notification quotes whatever track the store just
+        // picked, so it cannot name a song this cycle is not going to play.
+        runCatching { playNag(c, level = p) }.onFailure { errors += "audio: " + it.javaClass.simpleName }
         runCatching { notify(c, p) }.onFailure { errors += "notify: " + it.javaClass.simpleName }
-        runCatching { playNag(c) }.onFailure { errors += "audio: " + it.javaClass.simpleName }
         val delay = when {
             p <= 5 -> 15000L
             p <= 10 -> 30000L
@@ -173,7 +177,7 @@ object BatteryNag {
         }
     }
 
-    private fun playNag(c: Context, force: Boolean = false) {
+    private fun playNag(c: Context, force: Boolean = false, level: Int = 30) {
         if (force) {
             // The self test restarts playback so the track is heard from
             // the beginning even if a run is already going.
@@ -186,20 +190,37 @@ object BatteryNag {
             // The alarm stream can be muted, which would make the warning
             // completely inaudible while playback itself looks healthy.
             ensureAudible(c)
-            val fd = c.resources.openRawResourceFd(R.raw.nag_alert)
-            if (fd == null) {
-                tone(c)
-                return
-            }
+            // Which folder this level belongs to is decided here, so 26% gets
+            // the 30% run and 24% the 25% run. A pool that has run dry hands
+            // back the bundled track for this cycle and quietly refills itself
+            // for the next one.
+            val track = runCatching { TrackStore.pick(c, level) }
+                .getOrElse { TrackStore.Track(null, "", TrackStore.bucketFor(level)) }
+            lastTrack = if (track.bundled) "I'm All Out Of Love"
+            else "track ${track.id} (${track.bucket}%)"
             val mp = MediaPlayer()
-            fd.use {
-                mp.setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build()
-                )
-                mp.setDataSource(it.fileDescriptor, it.startOffset, it.length)
+            mp.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+            )
+            if (track.file != null) {
+                // Read from disk, so a phone with no signal still warns.
+                mp.setDataSource(track.file.absolutePath)
+            } else {
+                val fd = c.resources.openRawResourceFd(R.raw.nag_alert)
+                if (fd == null) {
+                    // Never prepared, so release it rather than leave a
+                    // MediaServer object behind every time the resource is
+                    // missing.
+                    runCatching { mp.release() }
+                    tone(c)
+                    return
+                }
+                fd.use {
+                    mp.setDataSource(it.fileDescriptor, it.startOffset, it.length)
+                }
             }
             mp.isLooping = true
             mp.setOnPreparedListener { player ->
@@ -602,7 +623,7 @@ object BatteryNag {
         // Every action is isolated: a blocked notification used to be able to
         // throw before the email step and take the whole test down with it.
         runCatching { vibrateDirect(c, 900) }
-        runCatching { playNag(c, force = true) }
+        runCatching { playNag(c, force = true, level = p) }
         runCatching { postTestNotification(c, p) }
         val emailResult = runCatching { sendTestEmail(c) }
             .getOrElse { "failed before sending: ${it.javaClass.simpleName} ${it.message}" }
@@ -634,7 +655,7 @@ object BatteryNag {
     fun playSong(c: Context): String {
         val volume = ensureAudible(c)
         trackPlaying = false
-        playNag(c, force = true)
+        playNag(c, force = true, level = batteryPercent(c))
         // prepareAsync resolves off-thread, so give start() a moment to run
         // before reporting whether the track actually came up.
         var waited = 0
@@ -643,7 +664,7 @@ object BatteryNag {
             waited += 50
         }
         val lines = mutableListOf(
-            if (trackPlaying) "playing: I'm All Out Of Love (looping)" else "playing: NOT STARTED",
+            if (trackPlaying) "playing: $lastTrack (looping)" else "playing: NOT STARTED",
             volume,
             "battery: ${batteryPercent(c)}%   charging: ${isCharging(c)}   snoozed: ${isSnoozed(c)}"
         )
@@ -679,7 +700,7 @@ object BatteryNag {
         }
 
         val title = "Battery Nag - battery at $p%"
-        val body = "All out of love playing - you need to charge your battery, or snooze."
+        val body = "$lastTrack playing - you need to charge your battery, or snooze."
 
         // Tapping the body opens the app, where all snooze options live.
         val openApp = PendingIntent.getActivity(

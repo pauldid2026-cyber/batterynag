@@ -147,6 +147,28 @@ class MainActivity : Activity() {
             BatteryNag.stopNag()
         }
 
+        /**
+         * Which buckets still need tracks. The answer comes back straight
+         * away from whatever the last manifest said, and the refreshed line
+         * is pushed to the page afterwards - opening settings never waits
+         * on a socket, and the fetch costs one small JSON file rather than
+         * any audio.
+         */
+        @JavascriptInterface
+        fun trackStatus(): String {
+            val now = runCatching { TrackStore.statusCached(this@MainActivity) }
+                .getOrDefault("")
+            TrackStore.statusAsync(this@MainActivity) { line ->
+                runOnUiThread {
+                    val quoted = JSONObject.quote(line)
+                    webView.evaluateJavascript(
+                        "window.onTrackStatus&&window.onTrackStatus($quoted)", null
+                    )
+                }
+            }
+            return now
+        }
+
         @JavascriptInterface
         fun setCallNumber(number: String) {
             val cleaned = number.trim()
