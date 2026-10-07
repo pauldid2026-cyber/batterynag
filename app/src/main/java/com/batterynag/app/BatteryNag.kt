@@ -539,10 +539,13 @@ object BatteryNag {
         }
 
         val volume = ensureAudible(c)
-        vibrateDirect(c, 900)
-        playNag(c, force = true)
-        postTestNotification(c, p)
-        val emailResult = sendTestEmail(c)
+        // Every action is isolated: a blocked notification used to be able to
+        // throw before the email step and take the whole test down with it.
+        runCatching { vibrateDirect(c, 900) }
+        runCatching { playNag(c, force = true) }
+        runCatching { postTestNotification(c, p) }
+        val emailResult = runCatching { sendTestEmail(c) }
+            .getOrElse { "failed before sending: ${it.javaClass.simpleName} ${it.message}" }
         val steps = c.getSharedPreferences(PREFS, 0).getString(LAST_STEPS, null) ?: "no steps run yet"
 
         return listOf(
