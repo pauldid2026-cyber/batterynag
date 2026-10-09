@@ -176,16 +176,21 @@ object TrackStore {
      * happy path, so it is safe on the path that runs while the battery
      * receiver is still alive.
      */
-    fun pick(c: Context, level: Int): Track {
-        val bucket = bucketFor(level)
+    /** The sources [pick] walks through when the one ahead of it is dry. */
+    private fun chain(c: Context): List<String> {
         val first = source(c)
-        val chain = if (first == SOURCE_JUKEBOX) {
+        return if (first == SOURCE_JUKEBOX) {
             listOf(SOURCE_JUKEBOX, SOURCE_FREEAI, SOURCE_ROOT)
         } else {
             listOf(first, SOURCE_ROOT)
         }
+    }
 
-        val chosen = chain.firstNotNullOfOrNull { pickFrom(c, it, bucket) }
+    fun pick(c: Context, level: Int): Track {
+        val bucket = bucketFor(level)
+        val first = source(c)
+
+        val chosen = chain(c).firstNotNullOfOrNull { pickFrom(c, it, bucket) }
         if (chosen == null) {
             // Everything has been played. Only now does the phone go online,
             // and this cycle falls back to the bundled track while it does.
@@ -265,17 +270,19 @@ object TrackStore {
         }
     }
 
-    /** Pulls the manifest and tops the chosen source - and the fallback - up. */
+    /** Pulls the manifest and tops the whole pick chain up. */
     private fun pull(c: Context, bucket: Int) {
         val manifest = readManifest(c) ?: return
-        val source = source(c)
 
-        // The chosen source gets the whole download budget first. The root
-        // buckets behind it only need topping up when that source runs dry,
-        // and by then the budget is free again, so both stay alive without a
-        // single refresh ever pulling more than MAX_DOWNLOADS files.
-        val left = pullSource(c, manifest, source, bucket, MAX_DOWNLOADS)
-        if (source != SOURCE_ROOT) pullSource(c, manifest, SOURCE_ROOT, bucket, left)
+        // The same chain pick() walks, best source first, under one download
+        // budget: a source further down only misses out while the ones ahead
+        // of it still have something to bring in, and the root buckets at the
+        // end stay alive as the fallback that keeps the nag from going quiet.
+        var left = MAX_DOWNLOADS
+        for (source in chain(c)) {
+            if (left <= 0) break
+            left -= pullSource(c, manifest, source, bucket, left)
+        }
     }
 
     /** Downloads what is missing for one source, then rewrites its pool. */
