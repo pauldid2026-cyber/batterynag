@@ -22,6 +22,7 @@ button:active{transform:scale(.99)}
 .snooze-title{text-align:center;color:#aaa;font-size:13px;font-weight:800;margin-bottom:10px}
 .snooze-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .snooze-grid button{margin:0;background:#171717;color:#fff;border:1px solid #333}
+.snooze-grid button.on{background:#fff;color:#000;border-color:#fff}
 #result{text-align:center;min-height:22px;color:#bbb;font-size:14px;padding:4px 8px}
 .selftest-out{text-align:left;color:#8f8;font-size:12px;line-height:1.6;background:#0b0b0b;border:1px solid #333;border-radius:12px;padding:14px;white-space:pre-wrap;margin:10px 0 4px;word-break:break-word}
 @media(max-width:360px){body{padding-left:14px;padding-right:14px}h1{font-size:32px}.snooze-grid{grid-template-columns:1fr}}
@@ -53,6 +54,12 @@ button:active{transform:scale(.99)}
 </div>
 <div class="divider"></div>
 <div class="snooze-title">NAG TRACK</div>
+<div class="snooze-title" style="margin-bottom:6px">SONGS FOR THE NAG COME FROM:</div>
+<div class="snooze-grid">
+<button id="srcFreeai" onclick="setSource('freeai')">FREE AI</button>
+<button id="srcJukebox" onclick="setSource('jukebox')">JUKEBOX</button>
+</div>
+<p class="hint" id="sourcehint" style="margin-top:8px">Fresh AI-picked songs, replaced with new ones every night.</p>
 <div id="trackstock" class="selftest-out" style="display:none"></div>
 <button onclick="playSong()" style="background:#3f6;margin-top:0">&#9654; PLAY THE NAG TRACK</button>
 <button onclick="stopSong()">STOP THE TRACK</button>
@@ -79,6 +86,29 @@ function refreshTrackStatus(){
  if(window.BatteryNag){
   try{showTrackStatus(BatteryNag.trackStatus())}catch(e){}
  }
+}
+function markSource(s){
+ const on=(s==='jukebox');
+ const f=document.getElementById('srcFreeai');
+ const j=document.getElementById('srcJukebox');
+ if(f){f.classList.toggle('on',!on)}
+ if(j){j.classList.toggle('on',on)}
+ const hint=document.getElementById('sourcehint');
+ if(hint){
+  hint.textContent=on
+   ?'Whatever has been added to the Charge Your Phone jukebox. Played as one pool, no levels.'
+   :'Fresh AI-picked songs, replaced with new ones every night.';
+ }
+}
+function setSource(s){
+ markSource(s);
+ if(!window.BatteryNag){return}
+ // The new source is topped up on the spot, and the stock line under the
+ // picker is pushed back by the app once the refreshed manifest is read.
+ try{BatteryNag.setSongSource(s)}catch(e){}
+}
+function initSource(){
+ markSource(window.BatteryNag?BatteryNag.getSongSource():'freeai');
 }
 function openPlaylist(){if(window.BatteryNag){BatteryNag.openPlaylist()}else{window.location.href='https://open.songslike.com/battery+nag'}}
 function registerEmail(){
@@ -140,6 +170,7 @@ window.onSongslikeVideoResults=onSongslikeVideoResults;
 window.onTrackStatus=showTrackStatus;
 document.addEventListener('DOMContentLoaded',refresh);
 document.addEventListener('DOMContentLoaded',refreshTrackStatus);
+document.addEventListener('DOMContentLoaded',initSource);
 document.addEventListener('DOMContentLoaded',function(){
  if(window.BatteryNag){BatteryNag.searchSongslike('im all out of love')}
 });

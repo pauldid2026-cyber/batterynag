@@ -261,8 +261,13 @@ object BatteryNag {
             // for the next one.
             val track = runCatching { TrackStore.pick(c, level) }
                 .getOrElse { TrackStore.Track(null, "", TrackStore.bucketFor(level)) }
-            lastTrack = if (track.bundled) "I'm All Out Of Love"
-            else "track ${track.id} (${track.bucket}%)"
+            lastTrack = when {
+                track.bundled -> "I'm All Out Of Love"
+                track.source == TrackStore.SOURCE_JUKEBOX -> "jukebox track ${track.id}"
+                track.source == TrackStore.SOURCE_FREEAI ->
+                    "freeai track ${track.id} (${track.bucket}%)"
+                else -> "track ${track.id} (${track.bucket}%)"
+            }
             val mp = MediaPlayer()
             mp.setAudioAttributes(
                 AudioAttributes.Builder()

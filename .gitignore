@@ -19,3 +19,6 @@ Thumbs.db
 
 # Captures
 captures/
+
+# Local Kotlin/IDEA build state created by building outside Android Studio
+.kotlin/

@@ -169,6 +169,38 @@ class MainActivity : Activity() {
             return now
         }
 
+        /**
+         * Which source the notification songs come from: "freeai" or
+         * "jukebox". Answered straight from preferences, so the page never
+         * waits on a socket to draw the picker.
+         */
+        @JavascriptInterface
+        fun getSongSource(): String = TrackStore.source(this@MainActivity)
+
+        /**
+         * Switches the source and tops the new one up straight away rather
+         * than waiting for the first warning to discover it empty, then
+         * pushes the refreshed stock line back like trackStatus does - the
+         * count under the picker has just changed meaning.
+         */
+        @JavascriptInterface
+        fun setSongSource(source: String) {
+            TrackStore.setSource(this@MainActivity, source)
+            val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val level = battery?.getIntExtra("level", -1) ?: -1
+            val scale = battery?.getIntExtra("scale", 100) ?: 100
+            val percent = if (level >= 0) level * 100 / scale else 30
+            TrackStore.refresh(this@MainActivity, percent)
+            TrackStore.statusAsync(this@MainActivity) { line ->
+                runOnUiThread {
+                    val quoted = JSONObject.quote(line)
+                    webView.evaluateJavascript(
+                        "window.onTrackStatus&&window.onTrackStatus($quoted)", null
+                    )
+                }
+            }
+        }
+
         @JavascriptInterface
         fun setCallNumber(number: String) {
             val cleaned = number.trim()
