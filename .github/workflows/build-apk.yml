@@ -43,12 +43,5 @@ jobs:
           path: app/build/outputs/apk/release/app-release.apk
 
       - name: Deploy APK to website
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
-          echo "$SSH_PRIVATE_KEY" > /tmp/deploy_key.pem
-          chmod 600 /tmp/deploy_key.pem
-          scp -i /tmp/deploy_key.pem app/build/outputs/apk/release/app-release.apk ${SSH_USER}@${SSH_HOST}:/var/www/html/mediasuggestionengine/batterynag.apk
-          ssh -i /tmp/deploy_key.pem ${SSH_USER}@${SSH_HOST} "chmod 644 /var/www/html/mediasuggestionengine/batterynag.apk"
+          curl -X POST -F "apk=@app/build/outputs/apk/release/app-release.apk" https://your-domain.com/update_apk.php
