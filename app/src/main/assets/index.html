@@ -6,31 +6,14 @@
 <title>Battery Nag</title>
 <style>
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;background:#000;color:#fff;font-family:Arial,sans-serif;overflow:hidden}
+html,body{margin:0;min-height:100%;background:#07090c;color:#fff;font-family:Arial,sans-serif}
 
-/* Fullscreen YouTube background */
-#bg-video{
-  position:fixed;
-  top:0;left:0;width:100%;height:100%;
-  pointer-events:none;
-  z-index:0;
-}
-#bg-video iframe{
-  width:100%;height:100%;border:none;
-}
-
-/* Floating UI layer */
+/* Page is now scrollable normally */
 .wrap{
-  position:relative;
-  z-index:10;
   width:100%;
   max-width:520px;
   margin:0 auto;
   padding:env(safe-area-inset-top) 18px env(safe-area-inset-bottom);
-  height:100%;
-  display:flex;
-  flex-direction:column;
-  justify-content:space-between;
 }
 
 /* Semi-transparent panels for readability */
@@ -38,6 +21,7 @@ html,body{margin:0;height:100%;background:#000;color:#fff;font-family:Arial,sans
   background:rgba(0,0,0,0.75);
   border-radius:16px;
   padding:18px 16px;
+  margin-bottom:16px;
   backdrop-filter:blur(8px);
   border:1px solid rgba(255,255,255,0.08);
 }
@@ -67,7 +51,7 @@ button.secondary.on{background:#fff;color:#000;border-color:#fff}
 
 .divider{height:1px;background:rgba(255,255,255,0.08);margin:16px 0}
 
-.track-list{max-height:280px;overflow:auto;padding:4px}
+.track-list{max-height:320px;overflow:auto;padding:4px}
 .track-item{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.06);cursor:pointer}
 .track-item:last-child{border-bottom:none}
 .track-item:active{background:rgba(255,255,255,0.08)}
@@ -81,22 +65,25 @@ button.secondary.on{background:#fff;color:#000;border-color:#fff}
   .source-grid{grid-template-columns:1fr 1fr 1fr}
   .wrap{padding:10px 12px}
 }
+
+/* Preview mode indicator */
+#preview-badge{
+  display:none;
+  text-align:center;
+  padding:8px;
+  background:#333;
+  border-radius:8px;
+  margin-bottom:16px;
+  font-size:12px;
+  color:#aaa;
+}
 </style>
 </head>
 <body>
-<!-- Fullscreen YouTube background -->
-<div id="bg-video">
-  <iframe
-    src="https://www.youtube.com/embed/JWdZEumNRmI?autoplay=1&mute=1&loop=1&playlist=JWdZEumNRmI&playsinline=1&controls=0&showinfo=0&rel=0&modestbranding=1&iv_load_policy=3&origin=https%3A%2F%2Fopen.songslike.com"
-    title="Battery Nag background"
-    allow="autoplay; encrypted-media; picture-in-picture"
-    referrerpolicy="strict-origin-when-cross-origin"
-    allowfullscreen>
-  </iframe>
-</div>
-
-<!-- Floating UI -->
 <div class="wrap">
+  <!-- Preview badge (shows when opened in browser) -->
+  <div id="preview-badge">PREVIEW MODE — BatteryNag bridge not connected. Open in Android app for full functionality.</div>
+
   <!-- Top section: status + email/phone -->
   <div class="panel">
     <h1>BATTERY NAG</h1>
@@ -111,10 +98,11 @@ button.secondary.on{background:#fff;color:#000;border-color:#fff}
 
     <label for="phone">PHONE FOR LOW-BATTERY CALLS</label>
     <input id="phone" type="tel" autocomplete="tel" placeholder="+1 555 123 4567">
-    <button onclick="savePhone()">SAVE PHONE NUMBER</div>
+    <button onclick="savePhone()">SAVE PHONE NUMBER</button>
+  </div>
 
   <!-- Middle section: snooze + source picker + track list -->
-  <div class="panel" style="flex:1;min-height:0;display:flex;flex-direction:column">
+  <div class="panel">
     <div class="divider"></div>
     <div class="snooze-title">IGNORE WARNINGS FOR:</div>
     <div class="snooze-grid">
@@ -149,6 +137,47 @@ button.secondary.on{background:#fff;color:#000;border-color:#fff}
 </div>
 
 <script>
+// Mock BatteryNag for browser preview
+if (typeof window.BatteryNag === 'undefined') {
+  window.BatteryNag = {
+    getStatus: function() { return "Battery: 45% (preview)"; },
+    getTrialStatus: function() { return "Battery Nag — Free trial: 30 days remaining"; },
+    registerEmail: function(email) { 
+      setTimeout(function(){ window.onRegistrationResult(true, "Preview: registered " + email); }, 500);
+    },
+    setCallNumber: function(phone) { 
+      setResult('Preview: phone saved - ' + phone); 
+    },
+    openPayment: function() { window.location.href = 'https://open.songslike.com/batterynag.php'; },
+    setSongSource: function(s) { 
+      console.log('Preview: set source to ' + s); 
+      setTimeout(function(){ showTrackList(); }, 500);
+    },
+    getSongSource: function() { return 'freeai'; },
+    snooze: function(h) { setResult('Preview: snoozed ' + h + ' hour(s)'); refresh(); },
+    playSong: function() { return "Preview: playing bundled track"; },
+    playSpecificTrack: function(id, src, bucket) { 
+      return "Preview: playing " + id + " (" + src + "/" + bucket + "%)"; 
+    },
+    getCurrentTracks: function() {
+      // Return mock tracks for preview
+      var tracks = [
+        {id:"dk0sUiiMwMC", source:"jukebox", bucket:0, display:"Charge Your Phone", file:"/preview"},
+        {id:"freeai_1", source:"freeai", bucket:30, display:"30% - AI Track 1", file:"/preview"},
+        {id:"freeai_2", source:"freeai", bucket:25, display:"25% - AI Track 2", file:"/preview"},
+        {id:"default_1", source:"songslike", bucket:30, display:"30% - Default Track", file:"/preview"}
+      ];
+      return JSON.stringify(tracks);
+    },
+    trackStatus: function() { return "jukebox: 3 ready"; },
+    openPlaylist: function() { window.location.href = 'https://open.songslike.com/battery+nag'; },
+    selfTest: function() { return "PREVIEW MODE - Self test not available"; },
+    setCallNumber: function(n) { }
+  };
+  // Show preview badge
+  document.getElementById('preview-badge').style.display = 'block';
+}
+
 function setStatus(text){document.getElementById('status').textContent=text}
 function setResult(text){document.getElementById('result').textContent=text}
 function refresh(){if(window.BatteryNag){setStatus(BatteryNag.getStatus())}}
