@@ -40,6 +40,7 @@ class MainActivity : Activity() {
         private const val PHONE_KEY = "call_number"
         private const val KEY_FSI_WARNED = "fsi_warned"
         private const val SONGSLIKE_PLAYLIST_URL = "https://open.songslike.com/battery+nag"
+        private const val PAY_URL = "https://open.songslike.com/batterynag.php"
         private const val REGISTER_URL =
             "https://open.songslike.com/battery-nag-api/index.php/register"
         private const val REGISTER_PATH = "/battery-nag-api/index.php/register"
@@ -179,6 +180,18 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun openPlaylist() {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(SONGSLIKE_PLAYLIST_URL)))
+        }
+
+        /** Opens the payment/upgrade page. */
+        @JavascriptInterface
+        fun openPayment() {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PAY_URL)))
+        }
+
+        /** Plays a specific track by ID, source, and bucket. */
+        @JavascriptInterface
+        fun playSpecificTrack(id: String, source: String, bucket: Int): String {
+            return BatteryNag.playSpecificTrack(this@MainActivity, id, source, bucket)
         }
 
         /**

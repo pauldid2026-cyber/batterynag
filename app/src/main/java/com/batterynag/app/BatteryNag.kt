@@ -745,6 +745,61 @@ object BatteryNag {
         return lines.joinToString("\n")
     }
 
+    /**
+     * Plays a specific track by ID, source, and bucket for preview.
+     * Finds the cached file and plays it.
+     */
+    fun playSpecificTrack(c: Context, id: String, source: String, bucket: Int): String {
+        val volume = ensureAudible(c)
+        trackPlaying = false
+        try {
+            val cacheDir = File(c.filesDir, "nag_tracks")
+            val folder = when (source) {
+                TrackStore.SOURCE_FREEAI -> File(cacheDir, "freeai/$bucket")
+                TrackStore.SOURCE_JUKEBOX -> File(cacheDir, "jukebox")
+                else -> File(cacheDir, bucket.toString())
+            }
+            val file = File(folder, "$id.mp3")
+            if (!file.isFile || file.length() == 0L) {
+                return "Track not cached: $id (${source}/${bucket}%)"
+            }
+            val mp = MediaPlayer()
+            mp.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+            )
+            mp.setDataSource(file.absolutePath)
+            mp.isLooping = false
+            mp.setOnPreparedListener { player ->
+                try {
+                    player.start()
+                    trackPlaying = true
+                } catch (_: Exception) {
+                }
+            }
+            mp.setOnCompletionListener { player ->
+                try { player.release() } catch (_: Exception) {}
+                trackPlaying = false
+            }
+            mp.setOnErrorListener { player, _, _ ->
+                try { player.release() } catch (_: Exception) {}
+                trackPlaying = false
+                true
+            }
+            mp.prepareAsync()
+            var waited = 0
+            while (!trackPlaying && waited < 2000) {
+                Thread.sleep(50)
+                waited += 50
+            }
+            return if (trackPlaying) "Previewing: $id (looping off)" else "Preview failed to start"
+        } catch (e: Exception) {
+            return "Preview error: ${e.javaClass.simpleName}"
+        }
+    }
+
     fun stop(c: Context) {
         val alarm = c.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val pending = PendingIntent.getBroadcast(c, REQ, Intent(c, ToneReceiver::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
