@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#07090c"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:id="@+id/topBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Battery Nag - Free 30-Day Trial"
+            android:textColor="#e7edf5"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:typeface="sans"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Track listing organized by battery level buckets"
+            android:textColor="#88aacc"
+            android:textSize="14sp"
+            android:layout_marginTop="4dp"/>
+    </LinearLayout>
+
+    <!-- Track Listing Section -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/topBar"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Track Listing"
+            android:textColor="#ffffff"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="12dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:padding="8dp"
+            android:background="#151322"
+            android:gravity="center"
+            android:minHeight="80dp">
+
+            <TextView
+                android:id="@+id/trackTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Charge Your Phone"
+                android:textColor="#e7edf5"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:singleLine="true"
+                android:ellipsize="marquee"/>
+
+            <TextView
+                android:id="@+id/trackArtist"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="jukebox"
+                android:textColor="#9dff3c"
+                android:textSize="14sp"
+                android:layout_marginStart="8dp"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:padding="4dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="30%"
+                android:textColor="#9dff3c"
+                android:textSize="18sp"
+                android:textStyle="bold"/>
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="→ 25% → 20% → 15% → 10% → 5%"
+                android:textColor="#66bb6a"
+                android:textSize="12sp"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:padding="4dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Source: Jukebox"
+                android:textColor="#88aacc"
+                android:textSize="12sp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="|"
+                android:textColor="#555555"
+                android:textSize="12sp"/>
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="FreeAI + Both options available"
+                android:textColor="#666666"
+                android:textSize="12sp"/>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="New MP3s added automatically each day from the jukebox"
+            android:textColor="#555555"
+            android:textSize="12sp"
+            android:layout_marginTop="8dp"/>
+    </LinearLayout>
+
+    <!-- Pay/Cta Section -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="After 30 days, the app transitions to Pro version."
+            android:textColor="#88aacc"
+            android:textSize="12sp"/>
+
+        <Button
+            android:id="@+id/upgradeButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Upgrade to Pro - $4.99 (One-time)"
+            android:textColor="#ffffff"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:background="#ff6b6b"
+            android:minHeight="48dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Or continue for free - trial extends 30 days from first launch"
+            android:textColor="#555555"
+            android:textSize="12sp"
+            android:layout_marginTop="4dp"/>
+    </LinearLayout>
+</RelativeLayout>

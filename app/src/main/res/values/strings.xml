@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">Battery Nag</string>
+    <string name="trial_30_days">30 days remaining</string>
+    <string name="track_charge_your_phone">Charge Your Phone</string>
+    <string name="track_artist">jukebox</string>
+    <string name="bucket_system">30% → 25% → 20% → 15% → 10% → 5%</string>
+    <string name="source_jukebox">Source: Jukebox</string>
+    <string name="source_freeai">Source: FreeAI</string>
+    <string name="source_both">Source: Both</string>
+    <string name="nightly_refresh">New MP3s added automatically each day</string>
+    <string name="upgrade_pro">Upgrade to Pro - $4.99 (One-time)</string>
+    <string name="continue_free">Continue for free - trial extends 30 days</string>
+    <string name="low_battery">Low Battery</string>
+    <string name="notification_title">Battery Nag - Low Battery</string>
+    <string name="notification_text">Battery at %1$s% - Song will play alert!</string>
+</resources>
