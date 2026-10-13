@@ -201,6 +201,29 @@ class MainActivity : Activity() {
             }
         }
 
+        /**
+         * Returns the list of currently eligible nag tracks from the chosen source.
+         * Intended for the settings/debug screen - returns file, id, bucket and a
+         * display string so the page can render a playlist without touching the
+         * bundled fallback track.
+         */
+        @JavascriptInterface
+        fun getCurrentTracks(): String {
+            val ctx = this@MainActivity
+            val tracks = TrackStore.currentTracks(ctx)
+            val json = JSONArray()
+            for (t in tracks) {
+                val obj = JSONObject()
+                obj.put("file", t.file?.absolutePath ?: "")
+                obj.put("id", t.id)
+                obj.put("bucket", t.bucket)
+                obj.put("source", t.source)
+                obj.put("display", t.display)
+                json.put(obj)
+            }
+            return json.toString()
+        }
+
         @JavascriptInterface
         fun setCallNumber(number: String) {
             val cleaned = number.trim()

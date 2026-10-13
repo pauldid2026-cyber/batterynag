@@ -36,8 +36,41 @@ jobs:
       - name: Verify APK exists
         run: test -s app/build/outputs/apk/release/app-release.apk
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: BatteryNag-APK
           path: app/build/outputs/apk/release/app-release.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-release@v2
+        with:
+          tag_name: battery-nag-${{ github.sha }}
+          name: "Battery Nag Build ${{ github.sha[:8] }}"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          draft: false
+          prerelease: false
+
+      - name: Upload APK asset to Release
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          file: app/build/outputs/apk/release/app-release.apk
+          asset_name: batterynag-${{ github.sha[:8] }}.apk
+          asset_type: application/vnd.android.package-archive
+          asset_label: APK
+
+      - name: Upload latest 3 APK assets
+        run: |
+          $apks = Get-ChildItem app/build/outputs/apk/release/*.apk | Sort-Object LastWriteTime -Descending | Select-Object -First 3
+          foreach ($apk in $apks) {
+            $fname = $apk.Name
+            $content = [System.IO.File]::ReadAllBytes($apk.FullName)
+            $url = "https://uploads.github.com/repos/pauldid2026-cyber/batterynag/releases/${{ github.sha }}/assets?name=$($fname"
+            $encoding = "utf8"
+            # Use curl via powershell on the windows-runner-friendly path
+            # Actually the runner is ubuntu-latest, so use curl
+            # For ubuntu: use the bash curl command
+            $result = bash -c "curl -s -X POST -H 'Authorization: token \${GITHUB_TOKEN}' -H 'Content-Type: application/octet-stream' --data-binary @'$($apk.FullName)' '\${url}'"
+            Write-Host "Uploaded $($fname): $result"
+          }

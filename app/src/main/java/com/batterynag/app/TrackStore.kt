@@ -489,6 +489,69 @@ object TrackStore {
         io.execute { onDone(runCatching { status(c) }.getOrDefault("")) }
     }
 
+    /**
+     * Returns a list of all currently eligible tracks from the chosen source,
+     * ready to play - file, id, bucket, source, plus a formatted display name.
+     * This reads the manifest on every call (cached for 24h internally) so it
+     * always reflects what the nightly run has just stocked.
+     */
+    fun currentTracks(c: Context): List<TrackInfo> {
+        val manifest = readManifest(c, allowNetwork = true) ?: return emptyList()
+        val source = source(c)
+        return when (source) {
+            SOURCE_JUKEBOX -> {
+                val count = manifest.optJSONObject("sources")
+                    ?.optJSONObject("jukebox")?.optInt("count", 0) ?: 0
+                // List all files in the jukebox folder
+                val folder = File(cache(c), "jukebox")
+                val tracks = if (count > 0) {
+                    folder.listFiles()?.filter { it.isFile && it.extension == "mp3" && it.length() > 0L }
+                        ?.mapNotNull { f ->
+                            val id = f.nameWithoutExtension
+                            TrackInfo(file = f, id = id, bucket = 0, source = SOURCE_JUKEBOX,
+                                display = if (id.length == 11) "$id".take(3) + "..." else id)
+                        } ?: emptyList()
+                } else emptyList()
+                tracks
+                    .take(count)  // respect the count reported by the manifest
+                    .let { it }
+            }
+            SOURCE_FREEAI -> {
+                val freeai = manifest.optJSONObject("sources")
+                    ?.optJSONObject("freeai") ?: return emptyList()
+                val tracks = BUCKETS.flatMap { bucket ->
+                    val folder = File(cache(c), "freeai/$bucket")
+                    folder.listFiles()?.filter { it.isFile && it.extension == "mp3" && it.length() > 0L }
+                        ?.mapNotNull { f ->
+                            val id = f.nameWithoutExtension
+                            TrackInfo(file = f, id = id, bucket = bucket, source = SOURCE_FREEAI,
+                                display = "$bucket% - $id")
+                        } ?: emptyList()
+                }
+                // Randomize within each bucket to give variety; only keep what's actually on disk
+                tracks.shuffled()
+            }
+            else -> {
+                val bucket = BUCKETS.first()
+                val folder = File(cache(c), bucket.toString())
+                folder.listFiles()?.filter { it.isFile && it.extension == "mp3" && it.length() > 0L }
+                    ?.mapNotNull { f ->
+                        val id = f.nameWithoutExtension
+                        TrackInfo(file = f, id = id, bucket = bucket, source = SOURCE_ROOT,
+                            display = "$bucket% - $id")
+                    } ?: emptyList()
+            }
+        }
+    }
+
+    data class TrackInfo(
+        val file: File?,
+        val id: String,
+        val bucket: Int,
+        val source: String,
+        val display: String
+    )
+
     private fun render(c: Context, manifest: JSONObject?): String {
         if (manifest == null) return ""
         return when (source(c)) {

@@ -61,14 +61,27 @@ button:active{transform:scale(.99)}
 </div>
 <p class="hint" id="sourcehint" style="margin-top:8px">Fresh AI-picked songs, replaced with new ones every night.</p>
 <div id="trackstock" class="selftest-out" style="display:none"></div>
-<button onclick="playSong()" style="background:#3f6;margin-top:0">&#9654; PLAY THE NAG TRACK</button>
-<button onclick="stopSong()">STOP THE TRACK</button>
-<div id="playout" class="selftest-out" style="display:none"></div>
+
+<!-- Playlist of currently loaded tracks -->
 <div class="divider"></div>
-<div class="snooze-title">DIAGNOSTICS</div>
-<button onclick="runSelfTest()">RUN THE NAG SELF TEST</button>
-<div id="selftest" class="selftest-out" style="display:none"></div>
+<div class="snooze-title">CURRENT NAG TRACKS</div>
+<div id="tracklist" class="selftest-out" style="display:none;height:200px;overflow:auto;border:1px solid #444;margin:8px 0;padding:8px;">
+  <div>Loading tracks...</div>
 </div>
+
+<!-- Notification settings message -->
+<div class="divider"></div>
+<p class="hint" style="margin:8px 0;">
+  <button onclick="showNotificationSettings()">Show notification settings</button>
+  <br/>Enable notifications in Android Settings → Battery Nag → Show notifications
+</p>
+
+<div class="divider"></div>
+<div class="snooze-title">DIAGNOSTICS</p>
+<p class="hint" style="margin:8px 0;">
+  Self test has been removed from the page.
+</p>
+
 <script>
 function setStatus(text){document.getElementById('status').textContent=text}
 function setResult(text){document.getElementById('result').textContent=text}
@@ -99,6 +112,30 @@ function markSource(s){
    ?'Whatever has been added to the Charge Your Phone jukebox. Played as one pool, no levels.'
    :'Fresh AI-picked songs, replaced with new ones every night.';
  }
+ // Show the track list whenever the source changes
+ try{showTrackList()}catch(e){}
+}
+function showNotificationSettings(){
+ if(!window.BatteryNag){return}
+ BatteryNag.showNotificationSettings()
+}
+function showTrackList(){
+ if(!window.BatteryNag){return}
+ BatteryNag.getCurrentTracks().then(tracksJson=>{
+  const box=document.getElementById('tracklist');
+  if(!box){return}
+  try{
+   const tracks=JSON.parse(tracksJson);
+   if(!tracks.length){box.innerHTML='<div>No tracks available</div>';box.style.display='block';return}
+   box.innerHTML=tracks.map(t=>
+     `<div style="margin:4px 0;font-size:13px;">
+        <span style="color:#888">[${t.bucket}%] </span>${t.display}
+        <span style="color:#555;float:right;margin-left:8px">(${t.source})</span>
+        <br style="clear:left">
+     </div>`).join('');
+   box.style.display='block';
+  }catch(e){box.innerHTML='<div>Error loading tracks</div>';box.style.display='block'}
+ }) .catch(e=>{const box=document.getElementById('tracklist');box.innerHTML='<div>Error loading tracks</div>';box.style.display='block'})
 }
 function setSource(s){
  markSource(s);
@@ -109,6 +146,8 @@ function setSource(s){
 }
 function initSource(){
  markSource(window.BatteryNag?BatteryNag.getSongSource():'freeai');
+ // Also show track list on page load
+ showTrackList();
 }
 function openPlaylist(){if(window.BatteryNag){BatteryNag.openPlaylist()}else{window.location.href='https://open.songslike.com/battery+nag'}}
 function registerEmail(){
@@ -123,57 +162,12 @@ function savePhone(){
  if(window.BatteryNag){BatteryNag.setCallNumber(phone);setResult('Phone number saved for low-battery calls.')}
  else{setResult('Phone number can only be saved in the Android app.')}
 }
-function onRegistrationResult(ok,message){setResult(message)}
-function onSongslikeVideoResults(videoIds){
- if(!Array.isArray(videoIds)){return}
- const ids=videoIds.filter(id=>/^[A-Za-z0-9_-]{11}$/.test(id));
- if(!ids.length){return}
- const player=document.getElementById('youtubePlayer');
- if(player){
-  const playlist=ids.join(',');
-  player.src='https://www.youtube.com/embed/'+encodeURIComponent(ids[0])+'?playlist='+encodeURIComponent(playlist)+'&playsinline=1&rel=0&origin=https%3A%2F%2Fopen.songslike.com';
- }
-}
-function snooze(hours){BatteryNag.snooze(hours);setResult('Warnings snoozed for '+hours+' hour'+(hours===1?'':'s')+'.');refresh()}
-function playSong(){
- const box=document.getElementById('playout');
- box.style.display='block';
- box.textContent='starting...';
- if(!window.BatteryNag){box.textContent='Play only works inside the Android app.';return}
- // The bridge call blocks while the track prepares, so let the
- // "starting" message paint before it freezes the page.
- setTimeout(function(){
-  try{box.textContent=BatteryNag.playSong()}
-  catch(e){box.textContent='play failed: '+e}
- },80);
-}
-function stopSong(){
- try{if(window.BatteryNag){BatteryNag.stopSong()}}catch(e){}
- const box=document.getElementById('playout');
- box.style.display='block';
- box.textContent='stopped';
-}
-function runSelfTest(){
- const box=document.getElementById('selftest');
- box.style.display='block';
- box.textContent='running...';
- if(!window.BatteryNag){box.textContent='The self test only runs inside the Android app.';return}
- // The bridge call blocks while the test email is sent, so let the
- // "running" message paint before it freezes the page.
- setTimeout(function(){
-  try{box.textContent=BatteryNag.selfTest()}
-  catch(e){box.textContent='self test failed: '+e}
- },80);
-}
 window.onRegistrationResult=onRegistrationResult;
 window.onSongslikeVideoResults=onSongslikeVideoResults;
 window.onTrackStatus=showTrackStatus;
 document.addEventListener('DOMContentLoaded',refresh);
 document.addEventListener('DOMContentLoaded',refreshTrackStatus);
 document.addEventListener('DOMContentLoaded',initSource);
-document.addEventListener('DOMContentLoaded',function(){
- if(window.BatteryNag){BatteryNag.searchSongslike('im all out of love')}
-});
 </script>
 </body>
 </html>
