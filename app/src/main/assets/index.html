@@ -34,7 +34,6 @@ button:active{transform:scale(.99)}
 <div class="video"><iframe id="youtubePlayer" width="560" height="315" src="https://www.youtube.com/embed/JWdZEumNRmI?si=dt8qemMfc017Mn77&playsinline=1&rel=0&origin=https%3A%2F%2Fopen.songslike.com" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>
 <div id="status" class="status">Battery: --%</div>
 <p class="copy">Warns below 30% and gets more frequent as the battery falls.</p>
-<button class="playlist" onclick="openPlaylist()">OPEN THE I'M ALL OUT OF LOVE PLAYLIST</button>
 <label for="email">EMAIL FOR ALERTS</label>
 <input id="email" type="email" autocomplete="email" placeholder="Your email address">
 <button onclick="registerEmail()">REGISTER FOR ALERTS</button>
@@ -58,6 +57,7 @@ button:active{transform:scale(.99)}
 <div class="snooze-grid">
 <button id="srcFreeai" onclick="setSource('freeai')">FREE AI</button>
 <button id="srcJukebox" onclick="setSource('jukebox')">JUKEBOX</button>
+<button id="srcBoth" onclick="setSource('both')">BOTH</button>
 </div>
 <p class="hint" id="sourcehint" style="margin-top:8px">Fresh AI-picked songs, replaced with new ones every night.</p>
 <div id="trackstock" class="selftest-out" style="display:none"></div>
@@ -65,22 +65,9 @@ button:active{transform:scale(.99)}
 <!-- Playlist of currently loaded tracks -->
 <div class="divider"></div>
 <div class="snooze-title">CURRENT NAG TRACKS</div>
-<div id="tracklist" class="selftest-out" style="display:none;height:200px;overflow:auto;border:1px solid #444;margin:8px 0;padding:8px;">
+<div id="tracklist" class="selftest-out" style="display:none;height:250px;overflow:auto;border:1px solid #444;margin:8px 0;padding:8px;">
   <div>Loading tracks...</div>
 </div>
-
-<!-- Notification settings message -->
-<div class="divider"></div>
-<p class="hint" style="margin:8px 0;">
-  <button onclick="showNotificationSettings()">Show notification settings</button>
-  <br/>Enable notifications in Android Settings → Battery Nag → Show notifications
-</p>
-
-<div class="divider"></div>
-<div class="snooze-title">DIAGNOSTICS</p>
-<p class="hint" style="margin:8px 0;">
-  Self test has been removed from the page.
-</p>
 
 <script>
 function setStatus(text){document.getElementById('status').textContent=text}
@@ -101,16 +88,24 @@ function refreshTrackStatus(){
  }
 }
 function markSource(s){
- const on=(s==='jukebox');
+ const onFreeai=(s==='freeai');
+ const onJukebox=(s==='jukebox');
+ const onBoth=(s==='both');
  const f=document.getElementById('srcFreeai');
  const j=document.getElementById('srcJukebox');
- if(f){f.classList.toggle('on',!on)}
- if(j){j.classList.toggle('on',on)}
+ const b=document.getElementById('srcBoth');
+ if(f){f.classList.toggle('on',!onFreeai && s!=='both')}
+ if(j){j.classList.toggle('on',onJukebox)}
+ if(b){b.classList.toggle('on',onBoth)}
  const hint=document.getElementById('sourcehint');
  if(hint){
-  hint.textContent=on
-   ?'Whatever has been added to the Charge Your Phone jukebox. Played as one pool, no levels.'
-   :'Fresh AI-picked songs, replaced with new ones every night.';
+  hint.textContent=(
+   s==='both'
+    ?'Songs from both the Jukebox and Free AI - played in random order.'
+   :(s==='jukebox')
+    ?'Whatever has been added to the Charge Your Phone jukebox. Played as one pool, no levels.'
+    :'Fresh AI-picked songs, replaced with new ones every night.'
+  );
  }
  // Show the track list whenever the source changes
  try{showTrackList()}catch(e){}
@@ -128,7 +123,7 @@ function showTrackList(){
    const tracks=JSON.parse(tracksJson);
    if(!tracks.length){box.innerHTML='<div>No tracks available</div>';box.style.display='block';return}
    box.innerHTML=tracks.map(t=>
-     `<div style="margin:4px 0;font-size:13px;">
+     `<div style="margin:4px 0;font-size:13px;cursor:pointer;" onclick="playTrack('${t.id}','${t.source}','${t.bucket}')">
         <span style="color:#888">[${t.bucket}%] </span>${t.display}
         <span style="color:#555;float:right;margin-left:8px">(${t.source})</span>
         <br style="clear:left">
@@ -149,6 +144,7 @@ function initSource(){
  // Also show track list on page load
  showTrackList();
 }
+// Removed playSong/stopSong - tracks are played from the playlist below
 function openPlaylist(){if(window.BatteryNag){BatteryNag.openPlaylist()}else{window.location.href='https://open.songslike.com/battery+nag'}}
 function registerEmail(){
  const email=document.getElementById('email').value.trim();
@@ -165,9 +161,7 @@ function savePhone(){
 window.onRegistrationResult=onRegistrationResult;
 window.onSongslikeVideoResults=onSongslikeVideoResults;
 window.onTrackStatus=showTrackStatus;
-document.addEventListener('DOMContentLoaded',refresh);
-document.addEventListener('DOMContentLoaded',refreshTrackStatus);
-document.addEventListener('DOMContentLoaded',initSource);
+document.addEventListener('DOMContentLoaded',function(){refresh();showTrackList();});
 </script>
 </body>
 </html>

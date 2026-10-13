@@ -56,12 +56,20 @@ object TrackStore {
     /** Whatever has been added to the shared jukebox on the website. */
     const val SOURCE_JUKEBOX = "jukebox"
 
+    /** Songs from both the jukebox and Free AI, played in random order. */
+    const val SOURCE_BOTH = "both"
+
     private const val SOURCE_KEY = "song_source"
 
     /** Which source the notification songs come from. */
-    fun source(c: Context): String =
-        if (prefs(c).getString(SOURCE_KEY, SOURCE_FREEAI) == SOURCE_JUKEBOX) SOURCE_JUKEBOX
-        else SOURCE_FREEAI
+    fun source(c: Context): String {
+        val raw = prefs(c).getString(SOURCE_KEY, SOURCE_FREEAI)
+        return when (raw) {
+            SOURCE_JUKEBOX -> SOURCE_JUKEBOX
+            SOURCE_BOTH -> SOURCE_BOTH
+            else -> SOURCE_FREEAI
+        }
+    }
 
     /**
      * Switches source and drops the manifest cache, so the next read asks the
@@ -70,7 +78,11 @@ object TrackStore {
      */
     fun setSource(c: Context, value: String) {
         prefs(c).edit()
-            .putString(SOURCE_KEY, if (value == SOURCE_JUKEBOX) SOURCE_JUKEBOX else SOURCE_FREEAI)
+            .putString(SOURCE_KEY, when (value) {
+                SOURCE_JUKEBOX -> SOURCE_JUKEBOX
+                SOURCE_BOTH -> SOURCE_BOTH
+                else -> SOURCE_FREEAI
+            })
             .putLong(MANIFEST_AT, 0L)
             .apply()
     }
@@ -127,10 +139,11 @@ object TrackStore {
 
     private fun today() = dayFormat.format(Date())
 
-    /** Pref key fragment: freeai stays per level, the jukebox is one pool. */
+    /** Pref key fragment: freeai stays per level, the jukebox is one pool, both uses its own fragment. */
     private fun tag(source: String, bucket: Int): String = when (source) {
         SOURCE_FREEAI -> "freeai_$bucket"
         SOURCE_JUKEBOX -> "jukebox"
+        SOURCE_BOTH -> "both_$bucket"
         else -> bucket.toString()
     }
 
@@ -179,10 +192,10 @@ object TrackStore {
     /** The sources [pick] walks through when the one ahead of it is dry. */
     private fun chain(c: Context): List<String> {
         val first = source(c)
-        return if (first == SOURCE_JUKEBOX) {
-            listOf(SOURCE_JUKEBOX, SOURCE_FREEAI, SOURCE_ROOT)
-        } else {
-            listOf(first, SOURCE_ROOT)
+        return when (first) {
+            SOURCE_JUKEBOX -> listOf(SOURCE_JUKEBOX, SOURCE_FREEAI, SOURCE_ROOT)
+            SOURCE_BOTH -> listOf(SOURCE_JUKEBOX, SOURCE_FREEAI, SOURCE_ROOT)
+            else -> listOf(first, SOURCE_ROOT)
         }
     }
 
