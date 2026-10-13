@@ -245,11 +245,21 @@ function snooze(h){
 function setSource(s){
  markSource(s);
  if(!window.BatteryNag){return}
- try{BatteryNag.setSongSource(s)}catch(e){}
+ try{
+  BatteryNag.setSongSource(s);
+  // Wait for the async refresh to download tracks, then re-render
+  setTimeout(function(){ showTrackList(); }, 1500);
+  setTimeout(function(){ showTrackList(); }, 4000);
+ }catch(e){}
 }
 function initSource(){
  markSource(window.BatteryNag?BatteryNag.getSongSource():'freeai');
- showTrackList();
+ // Trigger initial refresh so tracks appear on first load
+ if(window.BatteryNag){
+  try{BatteryNag.setSongSource(BatteryNag.getSongSource())}catch(e){}
+ }
+ setTimeout(function(){ showTrackList(); }, 2000);
+ setTimeout(function(){ showTrackList(); }, 5000);
 }
 function openPlaylist(){if(window.BatteryNag){BatteryNag.openPlaylist()}else{window.location.href='https://open.songslike.com/battery+nag'}}
 function registerEmail(){
