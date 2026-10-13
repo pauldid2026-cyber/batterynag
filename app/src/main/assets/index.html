@@ -112,25 +112,53 @@ function markSource(s){
 }
 function showNotificationSettings(){
  if(!window.BatteryNag){return}
- BatteryNag.showNotificationSettings()
+ try{
+  if(typeof BatteryNag.showNotificationSettings==='function'){BatteryNag.showNotificationSettings()}
+ }catch(e){}
+}
+function renderTrackList(tracksJson){
+ const box=document.getElementById('tracklist');
+ if(!box){return}
+ try{
+  const tracks=JSON.parse(tracksJson||'[]');
+  if(!tracks.length){box.innerHTML='<div>No tracks available</div>';box.style.display='block';return}
+  box.innerHTML=tracks.map(function(t){
+   const id=String(t.id||'').replace(/'/g,'');
+   const src=String(t.source||'').replace(/'/g,'');
+   const bucket=String(t.bucket||'').replace(/'/g,'');
+   const disp=String(t.display||id).replace(/</g,'&lt;');
+   return '<div style="margin:4px 0;font-size:13px;cursor:pointer;" onclick="playTrack(\''+id+'\',\''+src+'\',\''+bucket+'\')">'
+     +'<span style="color:#888">['+bucket+'%] </span>'+disp
+     +'<span style="color:#555;float:right;margin-left:8px">('+src+')</span>'
+     +'<br style="clear:left"></div>';
+  }).join('');
+  box.style.display='block';
+ }catch(e){box.innerHTML='<div>Error loading tracks</div>';box.style.display='block'}
 }
 function showTrackList(){
  if(!window.BatteryNag){return}
- BatteryNag.getCurrentTracks().then(tracksJson=>{
+ var res;
+ try{res=BatteryNag.getCurrentTracks()}catch(e){
   const box=document.getElementById('tracklist');
-  if(!box){return}
-  try{
-   const tracks=JSON.parse(tracksJson);
-   if(!tracks.length){box.innerHTML='<div>No tracks available</div>';box.style.display='block';return}
-   box.innerHTML=tracks.map(t=>
-     `<div style="margin:4px 0;font-size:13px;cursor:pointer;" onclick="playTrack('${t.id}','${t.source}','${t.bucket}')">
-        <span style="color:#888">[${t.bucket}%] </span>${t.display}
-        <span style="color:#555;float:right;margin-left:8px">(${t.source})</span>
-        <br style="clear:left">
-     </div>`).join('');
-   box.style.display='block';
-  }catch(e){box.innerHTML='<div>Error loading tracks</div>';box.style.display='block'}
- }) .catch(e=>{const box=document.getElementById('tracklist');box.innerHTML='<div>Error loading tracks</div>';box.style.display='block'})
+  if(box){box.innerHTML='<div>Error loading tracks</div>';box.style.display='block'}
+  return
+ }
+ if(res&&typeof res.then==='function'){res.then(renderTrackList).catch(function(){renderTrackList('[]')})}
+ else{renderTrackList(res)}
+}
+function playTrack(id,source,bucket){
+ setResult('Previewing '+(id||'track')+'…');
+ if(!window.BatteryNag){return}
+ try{
+  if(typeof BatteryNag.playSong==='function'){
+   var out=BatteryNag.playSong();
+   if(out){setResult(out)}
+  }
+ }catch(e){setResult('Could not preview track.')}
+}
+function snooze(h){
+ if(!window.BatteryNag){return}
+ try{BatteryNag.snooze(h);setResult('Warnings snoozed for '+h+' hour(s).');refresh()}catch(e){}
 }
 function setSource(s){
  markSource(s);
@@ -158,10 +186,20 @@ function savePhone(){
  if(window.BatteryNag){BatteryNag.setCallNumber(phone);setResult('Phone number saved for low-battery calls.')}
  else{setResult('Phone number can only be saved in the Android app.')}
 }
+function onRegistrationResult(ok,msg){setResult(msg||(ok?'Registered.':'Registration failed.'))}
+function onSongslikeVideoResults(ids){
+ try{
+  var list=JSON.parse(ids||'[]');
+  if(list&&list.length){
+   var f=document.getElementById('youtubePlayer');
+   if(f){f.src='https://www.youtube.com/embed/'+list[0]+'?playsinline=1&rel=0'}
+  }
+ }catch(e){}
+}
 window.onRegistrationResult=onRegistrationResult;
 window.onSongslikeVideoResults=onSongslikeVideoResults;
 window.onTrackStatus=showTrackStatus;
-document.addEventListener('DOMContentLoaded',function(){refresh();showTrackList();});
+document.addEventListener('DOMContentLoaded',function(){refresh();initSource();refreshTrackStatus();showTrackList();});
 </script>
 </body>
 </html>
