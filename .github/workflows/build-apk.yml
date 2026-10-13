@@ -59,18 +59,3 @@ jobs:
           asset_name: batterynag-${{ github.sha[:8] }}.apk
           asset_type: application/vnd.android.package-archive
           asset_label: APK
-
-      - name: Upload latest 3 APK assets
-        run: |
-          $apks = Get-ChildItem app/build/outputs/apk/release/*.apk | Sort-Object LastWriteTime -Descending | Select-Object -First 3
-          foreach ($apk in $apks) {
-            $fname = $apk.Name
-            $content = [System.IO.File]::ReadAllBytes($apk.FullName)
-            $url = "https://uploads.github.com/repos/pauldid2026-cyber/batterynag/releases/${{ github.sha }}/assets?name=$($fname"
-            $encoding = "utf8"
-            # Use curl via powershell on the windows-runner-friendly path
-            # Actually the runner is ubuntu-latest, so use curl
-            # For ubuntu: use the bash curl command
-            $result = bash -c "curl -s -X POST -H 'Authorization: token \${GITHUB_TOKEN}' -H 'Content-Type: application/octet-stream' --data-binary @'$($apk.FullName)' '\${url}'"
-            Write-Host "Uploaded $($fname): $result"
-          }
