@@ -169,8 +169,11 @@ if (typeof window.BatteryNag === 'undefined') {
       setTimeout(function(){ window.onRegistrationResult(true, "Preview: registered " + email); }, 500);
     },
     setCallNumber: function(phone) { 
-      setResult('Preview: phone saved - ' + phone); 
+      setResult('Preview: phone saved - ' + phone);
+      return 'saved';
     },
+    getCallNumber: function() { return ''; },
+    getRegisteredEmail: function() { return ''; },
     openPayment: function() { window.location.href = 'https://open.songslike.com/batterynag.php'; },
     setSongSource: function(s) { 
       console.log('Preview: set source to ' + s); 
@@ -194,8 +197,7 @@ if (typeof window.BatteryNag === 'undefined') {
     },
     trackStatus: function() { return "jukebox: 3 ready"; },
     openPlaylist: function() { window.location.href = 'https://open.songslike.com/battery+nag'; },
-    selfTest: function() { return "PREVIEW MODE - Self test not available"; },
-    setCallNumber: function(n) { }
+    selfTest: function() { return "PREVIEW MODE - Self test not available"; }
   };
   // Show preview badge
   document.getElementById('preview-badge').style.display = 'block';
