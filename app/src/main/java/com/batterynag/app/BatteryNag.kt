@@ -44,6 +44,13 @@ object BatteryNag {
     private const val CALLS_PER_DECREMENT = 2
     private const val CALL_CHANNEL = "battery_call"
     private const val CALL_FULLSCREEN_REQ = 3001
+    // Weekly "how much landed on the jukebox" line. Its own channel so it can
+    // be silenced apart from battery warnings, its own preference so each
+    // week is announced exactly once.
+    private const val JUKEBOX_CHANNEL  = "jukebox_playlist"
+    private const val JUKEBOX_NOTIF_ID = 46
+    private const val JUKEBOX_WEEK_URL = "https://open.songslike.com/batterynag.php?action=jukebox_week"
+    private const val JUKEBOX_WEEK_AT  = "jukebox_week_announced"
     const val CALL_NOTIF_ID = 43
     const val TEST_NOTIF_ID = 44
     private val thresholds = listOf(30, 20, 15, 10, 5)
@@ -191,6 +198,13 @@ object BatteryNag {
                     // Only a delivered report counts as the last known level,
                     // otherwise a rejected one would suppress every retry.
                     prefs.edit().putInt(REPORT_PERCENT, p).apply()
+                    // The same answer carries this week's jukebox count, so
+                    // the weekly line costs no request of its own.
+                    runCatching {
+                        val text = connection.inputStream.bufferedReader().use { it.readText() }
+                        val week = JSONObject(text).optJSONObject("jukebox_week") ?: return@runCatching
+                        maybeAnnounceJukebox(c, week.optInt("count", 0), week.optInt("week", 0))
+                    }
                 }
             } catch (_: Exception) {
                 // The next check tries again. Nothing here is urgent.
@@ -198,6 +212,80 @@ object BatteryNag {
                 connection?.disconnect()
             }
         }
+    }
+
+    /**
+     * Asks the site how much the jukebox gained this week and says so, once
+     * per week. The battery report carries the same figures; this is the
+     * instant path for the moment somebody taps Refresh Tracks after adding
+     * a song and wants to see the playlist react.
+     */
+    fun checkJukeboxWeek(c: Context) {
+        emailExecutor.execute {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL(JUKEBOX_WEEK_URL).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 5000
+                    readTimeout = 10000
+                    setRequestProperty("Accept", "application/json")
+                }
+                val text = connection.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(text)
+                maybeAnnounceJukebox(c, json.optInt("count", 0), json.optInt("week", 0))
+            } catch (_: Exception) {
+                // A nicety: the next battery check offers the same answer.
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    /**
+     * Posts the weekly jukebox line, exactly once per week and only when
+     * something actually landed - a week nobody added to stays quiet rather
+     * than announcing zero songs.
+     *
+     * The week number is the key, not the count: the count rises and falls
+     * as the seven-day window moves, so a "did I already say this" test on
+     * the count alone would repeat itself or skip a week.
+     */
+    private fun maybeAnnounceJukebox(c: Context, count: Int, week: Int) {
+        if (week <= 0) return
+        val prefs = c.getSharedPreferences(PREFS, 0)
+        if (prefs.getInt(JUKEBOX_WEEK_AT, 0) == week) return
+        prefs.edit().putInt(JUKEBOX_WEEK_AT, week).apply()
+        if (count <= 0) return
+
+        val body = if (count == 1) {
+            "A new song was added to the Dead Battery playlist this week."
+        } else {
+            "$count songs were added to the Dead Battery playlist this week."
+        }
+
+        val manager = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= 26) {
+            manager.createNotificationChannel(
+                NotificationChannel(JUKEBOX_CHANNEL, "Jukebox updates", NotificationManager.IMPORTANCE_DEFAULT)
+            )
+        }
+        // Opens the app, where the list itself lives.
+        val openApp = PendingIntent.getActivity(
+            c,
+            0,
+            Intent(c, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        manager.notify(JUKEBOX_NOTIF_ID, NotificationCompat.Builder(c, JUKEBOX_CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_low_battery)
+            .setContentTitle("Dead Battery playlist")
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(openApp)
+            .setAutoCancel(true)
+            .build())
     }
 
     private fun schedule(c: Context, delay: Long) {

@@ -353,6 +353,11 @@ object TrackStore {
         val app = c.applicationContext
         io.execute {
             try {
+                // The manifest is cached for a day, which meant "Refresh
+                // Tracks" re-downloaded files it already knew about while a
+                // song added minutes ago stayed invisible. A refresh has to
+                // mean asking again.
+                prefs(app).edit().putLong(MANIFEST_AT, 0L).apply()
                 runCatching { pull(app, bucket) }
             } finally {
                 refreshing.set(false)

@@ -291,6 +291,10 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun refreshTracks(level: Int) {
             TrackStore.refresh(this@MainActivity, level)
+            // The list is about to be redrawn - this is the moment to say how
+            // much the jukebox gained this week, rather than waiting for the
+            // next battery report to carry it.
+            BatteryNag.checkJukeboxWeek(this@MainActivity)
         }
 
         /**
