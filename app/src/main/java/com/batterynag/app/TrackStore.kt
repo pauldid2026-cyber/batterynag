@@ -1,6 +1,8 @@
 package com.batterynag.app
 
 import android.content.Context
+import android.os.Vibrator
+import android.os.VibrationEffect
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -10,6 +12,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.random.Random
 
 /**
  * The pool of nag tracks, one folder per battery level per source.
@@ -244,18 +247,92 @@ object TrackStore {
         }
         if (eligible.isEmpty()) return null
 
-        // Prefer anything the server sent that has never been used, then the
-        // track whose last outing is furthest away - that walks the pool round
-        // instead of hammering whichever file happens to sort first.
-        val chosen = eligible.sortedWith(
-            compareBy<Pair<String, File>> { if (marks[it.first].isNullOrBlank()) 0 else 1 }
-                .thenBy { marks[it.first] ?: "" }
+        // Score each eligible track:
+        // - Jukebox: prioritize unheard (today) songs, then by global play count (fewest first)
+        // - FreeAI/Root: random among eligible (fresh AI picks are already varied)
+        val scored = when (source) {
+            SOURCE_JUKEBOX -> {
+                // Load global play counts for jukebox
+                val globalCounts = getJukeboxGlobalCounts(c)
+                eligible.map { (id, file) ->
+                    val heardToday = marks[id] != null && marks[id] == today
+                    val globalCount = globalCounts[id] ?: 0
+                    // Score: unheard today = 0, heard today = 1; then by global count (ascending)
+                    val priority = if (heardToday) 1 else 0
+                    TrackScore(id, file, priority, globalCount)
+                }
+            }
+            else -> {
+                // For freeai and root, just randomize among eligible
+                eligible.map { (id, file) ->
+                    TrackScore(id, file, 0, Random.nextInt(1000000))
+                }
+            }
+        }
+
+        // Sort by priority (unheard first), then by global count (fewest plays first), then random
+        val chosen = scored.sortedWith(
+            compareBy<TrackScore> { it.priority }
+                .thenBy { it.globalCount }
+                .thenBy { it.random }
         ).first()
 
-        marks[chosen.first] = today
+        // Vibrate when a track is selected to play
+        vibrateOnPick(c)
+
+        marks[chosen.id] = today
         savePlayed(c, source, bucket, marks)
-        return Track(chosen.second, chosen.first, bucket, source)
+        // Also increment global play count for jukebox
+        if (source == SOURCE_JUKEBOX) {
+            incrementJukeboxGlobalCount(c, chosen.id)
+        }
+        return Track(chosen.file, chosen.id, bucket, source)
     }
+
+    /** Vibrates briefly when a new nag track starts. */
+    private fun vibrateOnPick(c: Context) {
+        try {
+            val v = c.getSystemService(Vibrator::class.java) ?: return
+            // Short double-buzz pattern: 100ms on, 50ms off, 100ms on
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                v.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 100, 50, 100), -1))
+            } else {
+                @Suppress("DEPRECATION")
+                v.vibrate(longArrayOf(0, 100, 50, 100), -1)
+            }
+        } catch (_: Exception) {
+            // Vibration not available or failed - ignore
+        }
+    }
+
+    /** Loads global play counts for jukebox tracks (persisted across days). */
+    private fun getJukeboxGlobalCounts(c: Context): Map<String, Int> {
+        val raw = prefs(c).getString("jukebox_global_counts", "") ?: ""
+        val map = mutableMapOf<String, Int>()
+        runCatching {
+            val json = JSONObject(if (raw.isBlank()) "{}" else raw)
+            for (key in json.keys()) map[key] = json.optInt(key, 0)
+        }
+        return map
+    }
+
+    /** Increments the global play count for a jukebox track. */
+    private fun incrementJukeboxGlobalCount(c: Context, id: String) {
+        val counts = getJukeboxGlobalCounts(c).toMutableMap()
+        counts[id] = (counts[id] ?: 0) + 1
+        val json = JSONObject()
+        counts.forEach { (k, v) -> json.put(k, v) }
+        prefs(c).edit().putString("jukebox_global_counts", json.toString()).apply()
+    }
+
+    /** Internal data class for scoring tracks during selection. */
+    private data class TrackScore(
+        val id: String,
+        val file: File,
+        val priority: Int,      // 0 = unheard today, 1 = heard today
+        val globalCount: Int,   // total plays across all time (for jukebox)
+        val random: Int = Random.nextInt(1000000)  // tiebreaker
+    )
 
     /** True when the chosen source has nothing cached at all. */
     fun isDry(c: Context, level: Int): Boolean {
@@ -510,50 +587,92 @@ object TrackStore {
      */
     fun currentTracks(c: Context): List<TrackInfo> {
         val manifest = readManifest(c, allowNetwork = true) ?: return emptyList()
-        val source = source(c)
-        return when (source) {
-            SOURCE_JUKEBOX -> {
-                val count = manifest.optJSONObject("sources")
-                    ?.optJSONObject("jukebox")?.optInt("count", 0) ?: 0
-                // List all files in the jukebox folder
-                val folder = File(cache(c), "jukebox")
-                val tracks = if (count > 0) {
-                    folder.listFiles()?.filter { it.isFile && it.extension == "mp3" && it.length() > 0L }
-                        ?.mapNotNull { f ->
-                            val id = f.nameWithoutExtension
-                            TrackInfo(file = f, id = id, bucket = 0, source = SOURCE_JUKEBOX,
-                                display = if (id.length == 11) "$id".take(3) + "..." else id)
-                        } ?: emptyList()
-                } else emptyList()
-                tracks
-                    .take(count)  // respect the count reported by the manifest
-                    .let { it }
-            }
-            SOURCE_FREEAI -> {
-                val freeai = manifest.optJSONObject("sources")
-                    ?.optJSONObject("freeai") ?: return emptyList()
-                val tracks = BUCKETS.flatMap { bucket ->
-                    val folder = File(cache(c), "freeai/$bucket")
-                    folder.listFiles()?.filter { it.isFile && it.extension == "mp3" && it.length() > 0L }
-                        ?.mapNotNull { f ->
-                            val id = f.nameWithoutExtension
-                            TrackInfo(file = f, id = id, bucket = bucket, source = SOURCE_FREEAI,
-                                display = "$bucket% - $id")
-                        } ?: emptyList()
-                }
-                // Randomize within each bucket to give variety; only keep what's actually on disk
-                tracks.shuffled()
-            }
-            else -> {
-                val bucket = BUCKETS.first()
-                val folder = File(cache(c), bucket.toString())
-                folder.listFiles()?.filter { it.isFile && it.extension == "mp3" && it.length() > 0L }
-                    ?.mapNotNull { f ->
-                        val id = f.nameWithoutExtension
-                        TrackInfo(file = f, id = id, bucket = bucket, source = SOURCE_ROOT,
-                            display = "$bucket% - $id")
-                    } ?: emptyList()
-            }
+        return when (source(c)) {
+            SOURCE_JUKEBOX -> jukeboxTracks(c, manifest)
+            SOURCE_FREEAI  -> freeaiTracks(c, manifest)
+            // "Both" plays the jukebox and Free AI pools together, so the
+            // list has to name both of them. Falling through to the root
+            // buckets here used to show a pool this source never plays.
+            SOURCE_BOTH    -> (freeaiTracks(c, manifest) + jukeboxTracks(c, manifest)).shuffled()
+            else           -> rootTracks(c)
+        }
+    }
+
+    /** Cached jukebox songs, each named from the manifest's jukebox meta. */
+    private fun jukeboxTracks(c: Context, manifest: JSONObject): List<TrackInfo> {
+        val jukebox = manifest.optJSONObject("sources")?.optJSONObject("jukebox") ?: return emptyList()
+        val count = jukebox.optInt("count", 0)
+        val meta = jukebox.optJSONObject("meta") ?: JSONObject()
+        if (count <= 0) return emptyList()
+
+        val folder = File(cache(c), "jukebox")
+        val tracks = folder.listFiles()
+            ?.filter { it.isFile && it.extension == "mp3" && it.length() > 0L }
+            ?.mapNotNull { f ->
+                val id = f.nameWithoutExtension
+                val metaObj = meta.optJSONObject(id)
+                // optString itself never returns null - the safe call above
+                // is what makes it String?.
+                val title = metaObj?.optString("title", "") ?: ""
+                val artist = metaObj?.optString("artist", "") ?: ""
+                TrackInfo(
+                    file = f, id = id, bucket = 0, source = SOURCE_JUKEBOX,
+                    display = buildDisplay(title, artist, id, 0, SOURCE_JUKEBOX),
+                )
+            } ?: emptyList()
+        return tracks.take(count)   // respect the count reported by the manifest
+    }
+
+    /** Cached Free AI songs, each named from that bucket's metadata. */
+    private fun freeaiTracks(c: Context, manifest: JSONObject): List<TrackInfo> {
+        val freeai = manifest.optJSONObject("sources")?.optJSONObject("freeai") ?: return emptyList()
+        val meta = freeai.optJSONObject("meta") ?: JSONObject()
+        val tracks = BUCKETS.flatMap { bucket ->
+            val bucketMeta = meta.optJSONObject(bucket.toString()) ?: JSONObject()
+            val folder = File(cache(c), "freeai/$bucket")
+            folder.listFiles()?.filter { it.isFile && it.extension == "mp3" && it.length() > 0L }
+                ?.mapNotNull { f ->
+                    val id = f.nameWithoutExtension
+                    val title = bucketMeta.optString(id, "")
+                    TrackInfo(
+                        file = f, id = id, bucket = bucket, source = SOURCE_FREEAI,
+                        display = buildDisplay(title, "", id, bucket, SOURCE_FREEAI),
+                    )
+                } ?: emptyList()
+        }
+        // Randomize within each bucket to give variety; only keep what's actually on disk
+        return tracks.shuffled()
+    }
+
+    /**
+     * The original search-driven buckets. Their manifest entries are bare
+     * file paths carrying no titles, so these rows only ever hold the id -
+     * the settings page names them from YouTube instead.
+     */
+    private fun rootTracks(c: Context): List<TrackInfo> {
+        val bucket = BUCKETS.first()
+        val folder = File(cache(c), bucket.toString())
+        return folder.listFiles()?.filter { it.isFile && it.extension == "mp3" && it.length() > 0L }
+            ?.mapNotNull { f ->
+                val id = f.nameWithoutExtension
+                TrackInfo(
+                    file = f, id = id, bucket = bucket, source = SOURCE_ROOT,
+                    display = buildDisplay("", "", id, bucket, SOURCE_ROOT),
+                )
+            } ?: emptyList()
+    }
+
+    /**
+     * Builds a human-readable display string from available metadata.
+     * Falls back to showing the bucket and ID if no title is available.
+     */
+    private fun buildDisplay(title: String, artist: String, id: String, bucket: Int, source: String): String {
+        return when {
+            title.isNotBlank() && artist.isNotBlank() -> "$artist - $title"
+            title.isNotBlank() -> title
+            source == SOURCE_JUKEBOX -> "Jukebox - $id"
+            source == SOURCE_FREEAI -> "$bucket% - $id"
+            else -> "$bucket% - $id"
         }
     }
 

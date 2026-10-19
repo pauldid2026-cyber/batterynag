@@ -287,6 +287,12 @@ class MainActivity : Activity() {
             return json.toString()
         }
 
+        /** Triggers a track refresh for the given battery level. */
+        @JavascriptInterface
+        fun refreshTracks(level: Int) {
+            TrackStore.refresh(this@MainActivity, level)
+        }
+
         @JavascriptInterface
         fun setCallNumber(number: String) {
             val cleaned = number.trim()

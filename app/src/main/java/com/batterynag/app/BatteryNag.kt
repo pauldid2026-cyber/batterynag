@@ -243,6 +243,58 @@ object BatteryNag {
         }
     }
 
+    /** Gets the human-readable display name for a track. */
+    private fun getTrackDisplayName(c: Context, track: TrackStore.Track): String {
+        if (track.bundled) return "I'm All Out Of Love"
+        
+        // Try to get display name from currentTracks
+        val tracks = TrackStore.currentTracks(c)
+        val match = tracks.firstOrNull { it.id == track.id && it.bucket == track.bucket && it.source == track.source }
+        return match?.display ?: when {
+            track.source == TrackStore.SOURCE_JUKEBOX -> "Jukebox track"
+            track.source == TrackStore.SOURCE_FREEAI -> "AI track (${track.bucket}%)"
+            else -> "Track (${track.bucket}%)"
+        }
+    }
+
+    /** Triggers web push notification to desktop via PHP backend. */
+    private fun triggerWebPush(c: Context, level: Int, trackName: String) {
+        val email = c.getSharedPreferences(EMAIL_PREFS, 0).getString(EMAIL_KEY, null)?.trim().orEmpty()
+        if (email.isBlank()) return
+        
+        // Only trigger on threshold boundaries (30, 25, 20, 15, 10, 5)
+        if (level !in setOf(30, 25, 20, 15, 10, 5)) return
+        
+        emailExecutor.execute {
+            var connection: HttpURLConnection? = null
+            try {
+                val body = JSONObject()
+                    .put("email", email)
+                    .put("percent", level)
+                    .put("track", trackName)
+                    .toString()
+                val signed = RequestSigner.headers(BuildConfig.SIGNING_SECRET, "POST", "/battery-nag-api/index.php/push", body)
+                
+                connection = (URL("https://open.songslike.com/battery-nag-api/index.php/push").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 5000
+                    readTimeout = 10000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("X-BatteryNag-Key", CLIENT_API_KEY)
+                    signed.forEach { (name, value) -> setRequestProperty(name, value) }
+                }
+                connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                // Response ignored - push is fire-and-forget
+            } catch (_: Exception) {
+                // Push failed - not critical
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
     private fun playNag(c: Context, force: Boolean = false, level: Int = 30) {
         if (force) {
             // The self test restarts playback so the track is heard from
@@ -262,13 +314,11 @@ object BatteryNag {
             // for the next one.
             val track = runCatching { TrackStore.pick(c, level) }
                 .getOrElse { TrackStore.Track(null, "", TrackStore.bucketFor(level)) }
-            lastTrack = when {
-                track.bundled -> "I'm All Out Of Love"
-                track.source == TrackStore.SOURCE_JUKEBOX -> "jukebox track ${track.id}"
-                track.source == TrackStore.SOURCE_FREEAI ->
-                    "freeai track ${track.id} (${track.bucket}%)"
-                else -> "track ${track.id} (${track.bucket}%)"
-            }
+            
+            // Get human-readable display name for the track
+            val trackDisplayName = getTrackDisplayName(c, track)
+            lastTrack = trackDisplayName
+            
             val mp = MediaPlayer()
             mp.setAudioAttributes(
                 AudioAttributes.Builder()

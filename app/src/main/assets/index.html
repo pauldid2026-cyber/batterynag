@@ -66,6 +66,10 @@ button.secondary.on{background:#fff;color:#000;border-color:#fff}
   .wrap{padding:10px 12px}
 }
 
+/* Host for the off-screen player that only reads titles. It never plays -
+   the box is clipped so nothing of it can be seen or tapped. */
+#titleProbeBox{position:fixed;left:-9999px;top:0;width:4px;height:4px;overflow:hidden;opacity:0;pointer-events:none}
+
 /* Preview mode indicator */
 #preview-badge{
   display:none;
@@ -78,11 +82,26 @@ button.secondary.on{background:#fff;color:#000;border-color:#fff}
   color:#aaa;
 }
 </style>
+<script>
+/* The YouTube IFrame API announces itself through this global the moment it
+   is ready, which can happen before or after the page's own script has run.
+   Defining it up here and queueing hooks means neither order breaks: the
+   probe starts as soon as both halves exist. */
+var ytTitleHooks = [];
+window.onYouTubeIframeAPIReady = function () {
+  window.__ytApiReady = true;
+  ytTitleHooks.forEach(function (fn) { try { fn(); } catch (e) {} });
+};
+</script>
+<script src="https://www.youtube.com/iframe_api" async></script>
 </head>
 <body>
 <div class="wrap">
   <!-- Preview badge (shows when opened in browser) -->
   <div id="preview-badge">PREVIEW MODE — BatteryNag bridge not connected. Open in Android app for full functionality.</div>
+
+  <!-- Off-screen player used only to read video titles off YouTube -->
+  <div id="titleProbeBox"><div id="titleProbe"></div></div>
 
   <!-- Top section: status + email/phone -->
   <div class="panel">
@@ -124,6 +143,10 @@ button.secondary.on{background:#fff;color:#000;border-color:#fff}
 
     <div class="divider"></div>
     <div class="snooze-title">CURRENT NAG TRACKS</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button class="btn secondary" onclick="refreshTracks()" style="flex:1">&#8635; Refresh Tracks</button>
+      <button class="btn secondary" onclick="showTrackList()" style="flex:1">&#128269; Reload List</button>
+    </div>
     <div id="tracklist" class="track-list" style="display:none">
       <div style="padding:10px;color:#888;text-align:center">Loading tracks…</div>
     </div>
@@ -223,6 +246,102 @@ function showNotificationSettings(){
   if(typeof BatteryNag.showNotificationSettings==='function'){BatteryNag.showNotificationSettings()}
  }catch(e){}
 }
+function html(s){
+ return String(s==null?'':s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function isYtId(id){return /^[A-Za-z0-9_-]{11}$/.test(String(id||''))}
+
+// --------------------------------------------------------- title lookup --
+// The manifest only carries titles for the ids it listed last night, so any
+// track the phone kept from an older run - or anything under the "both"
+// source - has nothing to show. YouTube already knows every one of them, so
+// the title comes from the IFrame API: cue the video off-screen and read
+// player.getVideoData().title once the metadata lands. Answers are kept in
+// localStorage, so each id is only ever looked up once for the life of the
+// app.
+var ytTitles = {};
+try { ytTitles = JSON.parse(localStorage.getItem('bn_yt_titles') || '{}') || {}; } catch (e) { ytTitles = {}; }
+var ytQueue = [], ytBusy = null, ytPoll = null, ytMissed = {}, ytProbe = null;
+
+function rememberTitles(){
+ try { localStorage.setItem('bn_yt_titles', JSON.stringify(ytTitles)); } catch (e) {}
+}
+
+function queueTitles(tracks){
+ tracks.forEach(function(t){
+  var id = String(t.id || '');
+  if (!isYtId(id) || ytTitles[id] || ytMissed[id]) return;
+  if (ytQueue.indexOf(id) < 0 && ytBusy !== id) ytQueue.push(id);
+ });
+ pumpTitles();
+}
+
+function pumpTitles(){
+ if (!window.__ytApiReady || !ytProbe || ytBusy) return;
+ while (ytQueue.length) {
+  var id = ytQueue.shift();
+  if (ytTitles[id] || ytMissed[id]) continue;
+  startProbe(id);
+  return;
+ }
+}
+
+function startProbe(id){
+ ytBusy = id;
+ var tries = 0, loaded = false;
+ try { ytProbe.cueVideoById(id); } catch (e) { finishProbe(id, null); return; }
+ clearInterval(ytPoll);
+ ytPoll = setInterval(function(){
+  tries++;
+  var data = null;
+  try { data = ytProbe.getVideoData && ytProbe.getVideoData(); } catch (e) {}
+  // Only an answer naming the video we just asked for counts - until the
+  // new metadata arrives the player still reports the previous one.
+  if (data && data.video_id === ytBusy && data.title) {
+   finishProbe(ytBusy, String(data.title));
+   return;
+  }
+  // Cuing usually brings the metadata across on its own. If it has not
+  // after a couple of seconds, ask for it the hard way - muted, so the
+  // lookup can never be heard - and stop the player the moment it lands.
+  if (tries === 7 && !loaded) {
+   loaded = true;
+   try { ytProbe.mute(); ytProbe.loadVideoById(id); } catch (e) {}
+  }
+  if (tries >= 20) finishProbe(ytBusy, null);
+ }, 300);
+}
+
+function finishProbe(id, title){
+ clearInterval(ytPoll);
+ ytPoll = null;
+ ytBusy = null;
+ try { if (ytProbe && ytProbe.stopVideo) ytProbe.stopVideo(); } catch (e) {}
+ if (title) { ytTitles[id] = title; rememberTitles(); applyTitle(id); }
+ else { ytMissed[id] = 1; }   // one miss per id per session, then move on
+ pumpTitles();
+}
+
+function applyTitle(id){
+ var row = document.querySelector('#tracklist .track-item[data-id="' + id + '"]');
+ if (row && ytTitles[id]) {
+  var name = row.querySelector('.track-name');
+  if (name) name.textContent = ytTitles[id];
+ }
+}
+
+function startTitleProbe(){
+ ytProbe = new YT.Player('titleProbe', {
+  height: '2', width: '2',
+  playerVars: { autoplay: 0, controls: 0, playsinline: 1, rel: 0, modestbranding: 1 },
+  events: { onReady: function(){ pumpTitles(); } }
+ });
+}
+if (window.__ytApiReady) startTitleProbe();
+else ytTitleHooks.push(startTitleProbe);
+
 function renderTrackList(tracksJson){
  const box=document.getElementById('tracklist');
  if(!box){return}
@@ -232,15 +351,19 @@ function renderTrackList(tracksJson){
   box.innerHTML=tracks.map(function(t){
    const id=String(t.id||'').replace(/'/g,'');
    const src=String(t.source||'').replace(/'/g,'');
-   const bucket=String(t.bucket||'').replace(/'/g,'');
-   const disp=String(t.display||id).replace(/</g,'<');
+   const bucket=Number(t.bucket)||0;
+   // Manifest text until YouTube answers, then the real title.
+   const disp=html(ytTitles[id] || t.display || id);
    const srcLabel = src==='jukebox'?'JUKEBOX':src==='freeai'?'FREE AI':'DEFAULT';
-   return '<div class="track-item" onclick="playTrack(\''+id+'\',\''+src+'\','+bucket+')">'
+   // The jukebox is one pool with no level, so it has no bucket to show.
+   const where = bucket>0 ? '['+bucket+'%] Source: '+srcLabel : 'Source: '+srcLabel;
+   return '<div class="track-item" data-id="'+id+'" onclick="playTrack(\''+id+'\',\''+src+'\','+bucket+')">'
      +'<div class="track-name">'+disp+'</div>'
-     +'<div class="track-meta">['+bucket+'%] Source: '+srcLabel+'</div>'
+     +'<div class="track-meta">'+where+'</div>'
      +'</div>';
   }).join('');
   box.style.display='block';
+  queueTitles(tracks);
  }catch(e){box.innerHTML='<div style="padding:10px;color:#f77;text-align:center">Error loading tracks</div>';box.style.display='block'}
 }
 function showTrackList(){
@@ -255,18 +378,42 @@ function showTrackList(){
  else{renderTrackList(res)}
 }
 function playTrack(id,source,bucket){
- setResult('Previewing '+(id||'track')+'…');
- if(!window.BatteryNag){return}
- try{
-  if(typeof BatteryNag.playSpecificTrack==='function'){
-   var out=BatteryNag.playSpecificTrack(id,source,bucket);
-   if(out){setResult(out)}
-  }else if(typeof BatteryNag.playSong==='function'){
-   var out=BatteryNag.playSong();
-   if(out){setResult(out)}
-  }
- }catch(e){setResult('Could not preview track.')}
+  setResult('Previewing '+(id||'track')+'…');
+  if(!window.BatteryNag){return}
+  try{
+   if(typeof BatteryNag.playSpecificTrack==='function'){
+    var out=BatteryNag.playSpecificTrack(id,source,bucket);
+    if(out){
+      setResult(out);
+      if(out.includes('not cached') || out.includes('Preview failed')){
+        // Auto-refresh tracks if not cached
+        setTimeout(function(){ refreshTracks(); }, 500);
+      }
+    }
+   }else if(typeof BatteryNag.playSong==='function'){
+    var out=BatteryNag.playSong();
+    if(out){setResult(out)}
+   }
+  }catch(e){setResult('Could not preview track.')}
 }
+
+function refreshTracks(){
+  if(!window.BatteryNag){return}
+  setResult('Refreshing tracks…');
+  try{
+    var battery = BatteryNag.getStatus?BatteryNag.getStatus():'';
+    var pct = parseInt(battery.replace('Battery: ','').replace('%','')) || 30;
+    if(typeof BatteryNag.refreshTracks==='function'){
+      BatteryNag.refreshTracks(pct);
+    }else if(typeof BatteryNag.setSongSource==='function'){
+      var cur = BatteryNag.getSongSource?BatteryNag.getSongSource():'freeai';
+      BatteryNag.setSongSource(cur);
+    }
+    setTimeout(function(){ showTrackList(); setResult('Tracks refreshed - try preview again'); }, 3000);
+    setTimeout(function(){ showTrackList(); }, 6000);
+  }catch(e){setResult('Refresh failed: '+e.message)}
+}
+
 function snooze(h){
  if(!window.BatteryNag){return}
  try{BatteryNag.snooze(h);setResult('Warnings snoozed for '+h+' hour(s).');refresh()}catch(e){}
