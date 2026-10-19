@@ -276,6 +276,34 @@ function queueTitles(tracks){
   if (ytQueue.indexOf(id) < 0 && ytBusy !== id) ytQueue.push(id);
  });
  pumpTitles();
+ requestServerTitles(tracks);
+}
+
+// Second opinion, and the one that saves a phone whose WebView will not run
+// the IFrame API: the site itself asks YouTube and answers a whole page of
+// ids in one request. Whatever it returns lands in the same cache, so the
+// two lookups only ever fill each other's gaps.
+var serverTried = {};
+
+function requestServerTitles(tracks){
+ var need = [];
+ tracks.forEach(function(t){
+  var id = String(t.id || '');
+  if (isYtId(id) && !ytTitles[id] && !serverTried[id]) { serverTried[id] = 1; need.push(id); }
+ });
+ if (!need.length) return;
+ if (typeof fetch !== 'function') return;
+ fetch('batterynag.php?action=titles&ids=' + need.join(','), { credentials: 'same-origin' })
+  .then(function(r){ return r.json(); })
+  .then(function(j){
+   var got = (j && j.titles) || {};
+   var changed = false;
+   Object.keys(got).forEach(function(id){
+    if (got[id] && !ytTitles[id]) { ytTitles[id] = String(got[id]); applyTitle(id); changed = true; }
+   });
+   if (changed) rememberTitles();
+  })
+  .catch(function(){});
 }
 
 function pumpTitles(){
