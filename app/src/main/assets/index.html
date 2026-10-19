@@ -427,10 +427,10 @@ function playTrack(id,source,bucket){
   }catch(e){setResult('Could not preview track.')}
 }
 
-function refreshTracks(){
-  if(!window.BatteryNag){return}
-  setResult('Refreshing tracks…');
-  try{
+// The bridge call behind every refresh, on its own so the button and the
+// live watcher below cannot drift apart into two different ways of asking
+// for the same thing.
+function runTrackRefresh(){
     var battery = BatteryNag.getStatus?BatteryNag.getStatus():'';
     var pct = parseInt(battery.replace('Battery: ','').replace('%','')) || 30;
     if(typeof BatteryNag.refreshTracks==='function'){
@@ -439,10 +439,79 @@ function refreshTracks(){
       var cur = BatteryNag.getSongSource?BatteryNag.getSongSource():'freeai';
       BatteryNag.setSongSource(cur);
     }
+}
+function refreshTracks(){
+  if(!window.BatteryNag){return}
+  setResult('Refreshing tracks…');
+  try{
+    runTrackRefresh();
     setTimeout(function(){ showTrackList(); setResult('Tracks refreshed - try preview again'); }, 3000);
     setTimeout(function(){ showTrackList(); }, 6000);
   }catch(e){setResult('Refresh failed: '+e.message)}
 }
+
+// ------------------------------------------------------------- live list --
+// A song added on the website only reaches this list once the manifest has
+// changed and the MP3 has been pulled, and nobody should have to press a
+// button to find that out. So while the app is open the page watches the
+// manifest's own timestamp: it is rewritten by every add and by the nightly
+// run, and the server keeps the CDN from ever caching that file, so a fresh
+// read is always the truth.
+//
+// The ask is deliberately a few dozen bytes rather than the whole manifest -
+// this is a battery tool, and a list nobody is looking at is not worth the
+// radio. Polling stops the moment the app is backgrounded and catches up on
+// the way back, so the count on screen is current when it is seen rather
+// than fifteen seconds stale.
+var liveTimer = null, liveBusy = false, liveStamp = null;
+
+function livePoll(){
+ if (liveBusy || typeof fetch !== 'function') return;
+ liveBusy = true;
+ fetch('batterynag.php?action=state', { credentials: 'same-origin' })
+  .then(function(r){ return r.json(); })
+  .then(function(j){
+   liveBusy = false;
+   if (!j || typeof j.generated !== 'string' || !j.generated) return;
+   if (liveStamp === null) { liveStamp = j.generated; return; }
+   if (j.generated === liveStamp) return;
+   liveStamp = j.generated;
+   liveUpdate(j.jukebox);
+  })
+  .catch(function(){ liveBusy = false; });
+}
+
+// The manifest moved, so the list is about to. The refresh drops the day-old
+// cache and pulls whatever is missing, and the list is redrawn a few times
+// afterwards because the new song has to be downloaded before it can be
+// shown - each pass catches whatever has landed by then.
+function liveUpdate(count){
+ setResult('Jukebox updated \u2014 pulling the new song\u2026');
+ try { runTrackRefresh(); } catch (e) {}
+ setTimeout(showTrackList, 2000);
+ setTimeout(showTrackList, 5000);
+ setTimeout(function(){
+  showTrackList();
+  setResult('Jukebox updated \u2014 ' + count + ' song' + (count === 1 ? '' : 's') + ' on the list');
+ }, 12000);
+}
+
+function liveStart(){
+ if (liveTimer) return;
+ livePoll();
+ liveTimer = setInterval(livePoll, 15000);
+}
+
+function liveStop(){
+ if (!liveTimer) return;
+ clearInterval(liveTimer);
+ liveTimer = null;
+}
+
+document.addEventListener('visibilitychange', function(){
+ if (document.hidden) { liveStop(); }
+ else { liveStart(); }   // poll at once, so coming back catches up immediately
+});
 
 function snooze(h){
  if(!window.BatteryNag){return}
@@ -521,7 +590,7 @@ function onSongslikeVideoResults(ids){
 window.onRegistrationResult=onRegistrationResult;
 window.onSongslikeVideoResults=onSongslikeVideoResults;
 window.onTrackStatus=showTrackStatus;
-document.addEventListener('DOMContentLoaded',function(){refresh();initSource();refreshTrackStatus();showTrackList();prefillSettings();});
+document.addEventListener('DOMContentLoaded',function(){refresh();initSource();refreshTrackStatus();showTrackList();prefillSettings();liveStart();});
 </script>
 </body>
 </html>
