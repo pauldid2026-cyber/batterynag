@@ -469,14 +469,35 @@ function openPlaylist(){if(window.BatteryNag){BatteryNag.openPlaylist()}else{win
 function registerEmail(){
  const email=document.getElementById('email').value.trim();
  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){setResult('Enter a valid email address.');return}
+ if(!window.BatteryNag){setResult('Alerts are registered from the Android app - this page cannot send the confirmation.');return}
  setResult('Registering…');
- BatteryNag.registerEmail(email);
+ try{BatteryNag.registerEmail(email)}catch(e){setResult('Could not reach the app: '+e.message)}
 }
 function savePhone(){
  const phone=document.getElementById('phone').value.trim();
- if(!/^[+\d][\d ()-]{6,}$/.test(phone)){setResult('Enter a valid phone number.');return}
- if(window.BatteryNag){BatteryNag.setCallNumber(phone);setResult('Phone number saved for low-battery calls.')}
- else{setResult('Phone number can only be saved in the Android app.')}
+ if(!/^[+\d][\d ()-]{6,}$/.test(phone)){setResult('Enter a valid phone number - digits, spaces, dashes and a leading + are fine.');return}
+ if(window.BatteryNag){
+  var status='saved';
+  try{status=BatteryNag.setCallNumber(phone)}catch(e){setResult('Could not reach the app to save that number.');return}
+  if(status==='saved'){setResult('Phone number saved for low-battery calls: '+phone)}
+  else{setResult('The app would not take that number - use 7 to 15 digits, + for the country code.')}
+ }else{setResult('Phone number can only be saved in the Android app.')}
+}
+// Fills both fields from what the app already holds, so a retype cannot
+// quietly register one address and notify another, and a saved number is
+// visible instead of having to be remembered.
+function prefillSettings(){
+ try{
+  if(!window.BatteryNag)return;
+  if(typeof BatteryNag.getRegisteredEmail==='function'){
+   var e=BatteryNag.getRegisteredEmail();
+   if(e&&!document.getElementById('email').value)document.getElementById('email').value=e;
+  }
+  if(typeof BatteryNag.getCallNumber==='function'){
+   var n=BatteryNag.getCallNumber();
+   if(n)document.getElementById('phone').value=n;
+  }
+ }catch(e){}
 }
 function openPayment(){
  if(window.BatteryNag && typeof BatteryNag.openPayment==='function'){
@@ -498,7 +519,7 @@ function onSongslikeVideoResults(ids){
 window.onRegistrationResult=onRegistrationResult;
 window.onSongslikeVideoResults=onSongslikeVideoResults;
 window.onTrackStatus=showTrackStatus;
-document.addEventListener('DOMContentLoaded',function(){refresh();initSource();refreshTrackStatus();showTrackList();});
+document.addEventListener('DOMContentLoaded',function(){refresh();initSource();refreshTrackStatus();showTrackList();prefillSettings();});
 </script>
 </body>
 </html>

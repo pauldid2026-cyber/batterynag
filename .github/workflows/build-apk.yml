@@ -41,7 +41,3 @@ jobs:
         with:
           name: BatteryNag-APK
           path: app/build/outputs/apk/release/app-release.apk
-
-      - name: Deploy APK to website
-        run: |
-          curl -X POST -F "apk=@app/build/outputs/apk/release/app-release.apk" https://your-domain.com/update_apk.php

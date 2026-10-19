@@ -293,15 +293,35 @@ class MainActivity : Activity() {
             TrackStore.refresh(this@MainActivity, level)
         }
 
+        /**
+         * Saves the number the low-battery call should dial, and says so.
+         *
+         * This used to reject silently, which reads exactly like a dead
+         * button: Patterns.PHONE is locale bound and turns away plenty of
+         * perfectly dialable international numbers. The count of digits
+         * decides instead, and the page shows whichever answer comes back.
+         */
         @JavascriptInterface
-        fun setCallNumber(number: String) {
+        fun setCallNumber(number: String): String {
             val cleaned = number.trim()
-            if (!android.util.Patterns.PHONE.matcher(cleaned).matches()) return
+            val digits = cleaned.count { it.isDigit() }
+            if (cleaned.isEmpty() || digits < 7 || digits > 15) return "invalid"
             getSharedPreferences(PHONE_PREFS, MODE_PRIVATE)
                 .edit()
                 .putString(PHONE_KEY, cleaned)
                 .apply()
+            return "saved"
         }
+
+        /** The number already on file, so the field opens filled in. */
+        @JavascriptInterface
+        fun getCallNumber(): String =
+            getSharedPreferences(PHONE_PREFS, MODE_PRIVATE).getString(PHONE_KEY, null) ?: ""
+
+        /** The address this phone last registered with. */
+        @JavascriptInterface
+        fun getRegisteredEmail(): String =
+            getSharedPreferences(EMAIL_PREFS, MODE_PRIVATE).getString(EMAIL_KEY, null) ?: ""
 
         @JavascriptInterface
         fun searchSongslike(query: String) {
@@ -403,7 +423,18 @@ class MainActivity : Activity() {
                     val message = if (success) {
                         "You're registered for alerts. Check your email."
                     } else {
-                        "Registration email could not be sent. Try again."
+                        // The server's own reason is the useful one here -
+                        // "missing signature" and "bad address" need
+                        // different fixes, and a flat failure hides both.
+                        val detail = runCatching {
+                            val stream = connection.errorStream ?: connection.inputStream
+                            stream?.bufferedReader()?.use { it.readText() } ?: ""
+                        }.getOrDefault("")
+                        val reason = runCatching {
+                            JSONObject(detail).optString("error", "")
+                        }.getOrDefault("")
+                        if (reason.isNotBlank()) reason
+                        else "Registration email could not be sent (HTTP $code). Try again."
                     }
 
                     runOnUiThread {
