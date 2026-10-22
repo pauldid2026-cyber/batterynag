@@ -3,6 +3,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- MediaPlayer.setWakeMode needs this. Without it the alarm track cannot
+         hold a partial wake lock, so playback stops the moment the app is
+         backgrounded and the screen turns off. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <!-- The track plays on the alarm stream; without this the alarm volume
          cannot be lifted off zero, and a muted alarm makes the nag silent. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>

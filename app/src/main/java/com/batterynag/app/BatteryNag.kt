@@ -432,6 +432,12 @@ object BatteryNag {
                 }
             }
             mp.isLooping = true
+            // An alarm that dies the instant the phone sleeps is useless, and
+            // MediaPlayer holds no wakelock of its own: once the app is
+            // backgrounded the CPU may suspend and playback stops until the
+            // user wakes the phone again. The charge watcher is what stops
+            // this track, not the screen going off.
+            mp.setWakeMode(c, PowerManager.PARTIAL_WAKE_LOCK)
             mp.setOnPreparedListener { player ->
                 try {
                     player.start()
