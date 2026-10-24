@@ -2,7 +2,7 @@ name: Build SongsLike Life APK
 on:
   workflow_dispatch:
   push:
-    branches: ["songs-like-life"]
+    branches: ["main", "songs-like-life"]
 jobs:
   build:
     runs-on: ubuntu-latest
