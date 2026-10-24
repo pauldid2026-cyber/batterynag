@@ -1,46 +1,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
-    <uses-permission android:name="android.permission.VIBRATE"/>
-    <!-- MediaPlayer.setWakeMode needs this. Without it the alarm track cannot
-         hold a partial wake lock, so playback stops the moment the app is
-         backgrounded and the screen turns off. -->
-    <uses-permission android:name="android.permission.WAKE_LOCK"/>
-    <!-- The track plays on the alarm stream; without this the alarm volume
-         cannot be lifted off zero, and a muted alarm makes the nag silent. -->
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
-    <uses-permission android:name="android.permission.CALL_PHONE"/>
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
-    <application
-        android:theme="@style/AppTheme"
-        android:label="Battery Nag"
-        android:allowBackup="false">
-        <activity
-            android:name=".MainActivity"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
+    <application android:theme="@style/AppTheme" android:label="SongsLike • Soundtrack to Your Life" android:allowBackup="false">
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
         </activity>
-        <receiver
-            android:name=".BatteryReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED"/>
-                <action android:name="android.intent.action.POWER_CONNECTED"/>
-                <action android:name="android.intent.action.POWER_DISCONNECTED"/>
-            </intent-filter>
-        </receiver>
-        <receiver android:name=".ToneReceiver" android:exported="false"/>
-        <receiver android:name=".SnoozeReceiver" android:exported="false"/>
-        <activity
-            android:name=".NagCallActivity"
-            android:exported="false"
-            android:excludeFromRecents="true"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true"
-            android:theme="@style/NagCallTheme"/>
+        <receiver android:name=".ScheduleReceiver" android:exported="false"/>
+        <receiver android:name=".BootReceiver" android:exported="true"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/></intent-filter></receiver>
+        <service android:name=".ProximityService" android:exported="false" android:foregroundServiceType="location"/>
     </application>
 </manifest>
